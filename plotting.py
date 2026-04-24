@@ -1,11 +1,11 @@
 """
 plotting.py
 -----------
-All visualisation for the PRS federated learning experiment.
+Visualisation for the federated PRS case/control classification demo.
 
-Generates a two-page multi-panel figure saved to:
-  results/prs_federation_results_p1.png  (federation mechanics)
-  results/prs_federation_results_p2.png  (model quality & biology)
+Page 1 — Cohort characteristics & federation mechanics
+Page 2 — Figure 3 equivalent: true betas vs federated coefficients,
+          classification metrics, cross-cohort AUC heatmap
 """
 
 import os
@@ -15,328 +15,340 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-import matplotlib.patches as mpatches
 import seaborn as sns
-from sklearn.linear_model import Ridge, SGDRegressor
+from sklearn.linear_model import SGDClassifier, Ridge
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import r2_score, mean_squared_error
+from sklearn.metrics import (roc_auc_score, log_loss, accuracy_score,
+                              precision_score, recall_score, f1_score)
+from scipy.special import expit
+from scipy.stats import pearsonr
 
-# ── Palette ──────────────────────────────────────────────────────────────────
 C = {
-    "USA_young"  : "#3B82F6",   # blue
-    "USA_normal" : "#10B981",   # green
-    "USA_old"    : "#F59E0B",   # amber
-    "federated"  : "#EF4444",   # red
+    "USA_young" : "#3B82F6",
+    "USA_normal": "#10B981",
+    "USA_old"   : "#F59E0B",
+    "federated" : "#EF4444",
 }
 DISPLAY = {
-    "USA_young"  : "Young (μ=43 y)",
-    "USA_normal" : "Normal (μ=53 y)",
-    "USA_old"    : "Old (μ=61 y)",
-    "federated"  : "Federated (global)",
+    "USA_young" : "Dataset A – Young (μ=43 y)",
+    "USA_normal": "Dataset C – Normal (30–80 y)",
+    "USA_old"   : "Dataset B – Old (μ=61 y)",
+    "federated" : "Federated (global)",
 }
-NAMES = ["USA_young", "USA_normal", "USA_old"]
+NAMES = ["USA_young", "USA_old", "USA_normal"]
 
 
-# ── Data helpers (self-contained so plotting has no import dependency) ───────
+# ── Data helpers ──────────────────────────────────────────────────────────────
 
-def _load(data_dir: str):
+def _load(data_dir):
     dfs = {}
     for name in NAMES:
-        df = pd.read_csv(os.path.join(data_dir, f"{name}.csv"))
-        snp_cols  = [c for c in df.columns if ":" in c]
-        feat_cols = snp_cols + ["ageOfEntry"]
-        X  = df[feat_cols].values.astype(np.float64)
-        y  = df["prs"].values.astype(np.float64)
-        sc = StandardScaler()
-        Xs = sc.fit_transform(X)
-        sp = int(len(Xs) * 0.8)
-        dfs[name] = dict(
-            X_train=Xs[:sp], X_test=Xs[sp:],
-            y_train=y[:sp],  y_test=y[sp:],
-            scaler=sc, df=df, snp_cols=snp_cols, feat_cols=feat_cols
-        )
-    return dfs
+        df       = pd.read_csv(os.path.join(data_dir, f"{name}.csv"))
+        snp_cols = [c for c in df.columns if ":" in c]
+        X        = df[snp_cols].values.astype(np.float64)
+        y        = df["case"].values.astype(int)
+        sc       = StandardScaler()
+        Xs       = sc.fit_transform(X)
+        sp       = int(len(Xs) * 0.8)
+        dfs[name] = dict(X_tr=Xs[:sp], X_te=Xs[sp:],
+                         y_tr=y[:sp],  y_te=y[sp:],
+                         scaler=sc, df=df, snp_cols=snp_cols)
+    # True betas from normal dataset (reference)
+    ref  = dfs["USA_normal"]
+    betas = Ridge(alpha=1e-10).fit(
+        ref["df"][ref["snp_cols"]].values.astype(np.float64),
+        ref["df"]["prs"].values.astype(np.float64)
+    ).coef_
+    return dfs, betas
 
 
 def _simulate_federation(dfs, n_rounds=10, local_epochs=5):
-    """Re-run the federation so plotting.py is fully self-contained."""
-    n_features     = dfs[NAMES[0]]["X_train"].shape[1]
-    global_coef    = np.zeros(n_features)
-    global_int     = np.zeros(1)
-    prev_coef      = global_coef.copy()
+    np.random.seed(42)
+    n_features   = dfs[NAMES[0]]["X_tr"].shape[1]
+    global_coef  = np.zeros(n_features)
+    global_int   = np.zeros(1)
+    prev_coef    = global_coef.copy()
 
-    round_metrics  = {n: {"mse": [], "r2": []} for n in NAMES}
-    global_mse_log = []
+    round_metrics  = {n: {"auc":[], "f1":[], "acc":[], "ll":[]} for n in NAMES}
+    global_ll_log  = []
     norm_changes   = []
-    coef_history   = []   # (n_rounds, n_features) – track convergence
 
     for _ in range(n_rounds):
         new_coefs, new_ints = [], []
         for name in NAMES:
-            m = SGDRegressor(loss="squared_error", penalty="l2", alpha=1e-4,
-                             learning_rate="invscaling", eta0=0.01,
-                             max_iter=1, warm_start=True, random_state=42)
-            m.coef_      = global_coef.copy()
+            m = SGDClassifier(loss="log_loss", penalty="l2", alpha=1e-4,
+                              learning_rate="invscaling", eta0=0.01,
+                              max_iter=1, warm_start=True, random_state=42,
+                              class_weight="balanced")
+            m.coef_      = global_coef.reshape(1, -1).copy()
             m.intercept_ = global_int.copy()
+            m.classes_   = np.array([0, 1])
             for _ in range(local_epochs):
-                m.partial_fit(dfs[name]["X_train"], dfs[name]["y_train"])
-            new_coefs.append(m.coef_.copy())
+                m.partial_fit(dfs[name]["X_tr"], dfs[name]["y_tr"], classes=[0,1])
+            new_coefs.append(m.coef_[0].copy())
             new_ints.append(m.intercept_.copy())
 
         global_coef = np.mean(new_coefs, axis=0)
         global_int  = np.mean(new_ints,  axis=0)
-
         norm_changes.append(np.linalg.norm(global_coef - prev_coef))
-        prev_coef = global_coef.copy()
-        coef_history.append(global_coef.copy())
+        prev_coef   = global_coef.copy()
 
-        total = 0
+        total_ll = 0
         for name in NAMES:
-            yp  = dfs[name]["X_test"] @ global_coef + global_int[0]
-            mse = float(mean_squared_error(dfs[name]["y_test"], yp))
-            r2  = float(r2_score(dfs[name]["y_test"], yp))
-            round_metrics[name]["mse"].append(mse)
-            round_metrics[name]["r2"].append(r2)
-            total += mse
-        global_mse_log.append(total / 3)
+            probs = expit(dfs[name]["X_te"] @ global_coef + global_int[0])
+            preds = (probs >= 0.5).astype(int)
+            y_te  = dfs[name]["y_te"]
+            round_metrics[name]["auc"].append(float(roc_auc_score(y_te, probs)))
+            round_metrics[name]["f1"].append(float(f1_score(y_te, preds, zero_division=0)))
+            round_metrics[name]["acc"].append(float(accuracy_score(y_te, preds)))
+            ll = float(log_loss(y_te, probs))
+            round_metrics[name]["ll"].append(ll)
+            total_ll += ll
+        global_ll_log.append(total_ll / 3)
 
-    return dict(
-        global_coef    = global_coef,
-        global_int     = global_int,
-        round_metrics  = round_metrics,
-        global_mse_log = global_mse_log,
-        norm_changes   = norm_changes,
-        coef_history   = np.array(coef_history),
-    )
+    return dict(global_coef=global_coef, global_int=global_int,
+                round_metrics=round_metrics, global_ll_log=global_ll_log,
+                norm_changes=norm_changes)
 
 
 def _local_models(dfs):
     models = {}
     for name in NAMES:
-        models[name] = Ridge(alpha=1e-4).fit(dfs[name]["X_train"], dfs[name]["y_train"])
+        m = SGDClassifier(loss="log_loss", penalty="l2", alpha=1e-4,
+                          learning_rate="invscaling", eta0=0.01,
+                          max_iter=1, warm_start=True, random_state=42,
+                          class_weight="balanced")
+        m.classes_ = np.array([0, 1])
+        for _ in range(10):
+            m.partial_fit(dfs[name]["X_tr"], dfs[name]["y_tr"], classes=[0,1])
+        models[name] = m
     return models
 
 
-# ── Individual plot functions ────────────────────────────────────────────────
+# ── Plot functions ────────────────────────────────────────────────────────────
 
 def _plot_age_dist(dfs, ax):
     for name in NAMES:
         ages = dfs[name]["df"]["ageOfEntry"].values
-        ax.hist(ages, bins=40, alpha=0.45, color=C[name],
+        ax.hist(ages, bins=40, alpha=0.5, color=C[name],
                 label=DISPLAY[name], density=True, edgecolor="none")
         ax.axvline(ages.mean(), color=C[name], linewidth=2, linestyle="--")
     ax.set_title("Age-of-Entry Distribution\n(Intentional Cohort Imbalance)", fontweight="bold")
     ax.set_xlabel("Age of Entry"); ax.set_ylabel("Density")
-    ax.legend(fontsize=8); sns.despine(ax=ax)
-
-
-def _plot_prs_dist(dfs, ax):
-    for name in NAMES:
-        prs = dfs[name]["df"]["prs"].values
-        ax.hist(prs, bins=60, alpha=0.45, color=C[name],
-                label=DISPLAY[name], density=True, edgecolor="none")
-    ax.set_title("PRS Distribution per Cohort", fontweight="bold")
-    ax.set_xlabel("Polygenic Risk Score"); ax.set_ylabel("Density")
-    ax.legend(fontsize=8); sns.despine(ax=ax)
+    ax.legend(fontsize=7.5); sns.despine(ax=ax)
 
 
 def _plot_case_rate(dfs, ax):
     labels = [DISPLAY[n] for n in NAMES]
     rates  = [dfs[n]["df"]["case"].mean() * 100 for n in NAMES]
+    counts = [(dfs[n]["df"]["case"]==1).sum() for n in NAMES]
     bars   = ax.bar(labels, rates, color=[C[n] for n in NAMES], alpha=0.85, edgecolor="white")
-    for bar, rate in zip(bars, rates):
-        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02,
-                f"{rate:.2f}%", ha="center", va="bottom", fontsize=9, fontweight="bold")
-    ax.set_title("Case Rate by Age Cohort\n(Age Imbalance Impact)", fontweight="bold")
-    ax.set_ylabel("Case Rate (%)"); ax.set_ylim(0, max(rates) * 1.3)
-    ax.tick_params(axis="x", labelsize=8); sns.despine(ax=ax)
+    for bar, rate, cnt in zip(bars, rates, counts):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
+                f"{rate:.2f}%\n(n={cnt})", ha="center", va="bottom", fontsize=8, fontweight="bold")
+    ax.set_title("Case Rate by Cohort", fontweight="bold")
+    ax.set_ylabel("Case Rate (%)"); ax.set_ylim(0, max(rates) * 1.5)
+    ax.tick_params(axis="x", labelsize=7.5); sns.despine(ax=ax)
 
 
-def _plot_param_convergence(fed, ax):
+def _plot_norm_convergence(fed, ax):
     rounds = list(range(1, len(fed["norm_changes"]) + 1))
-    ax.plot(rounds, fed["norm_changes"], "o-", color=C["federated"],
-            linewidth=2.5, markersize=6)
+    ax.plot(rounds, fed["norm_changes"], "o-", color=C["federated"], linewidth=2.5, markersize=6)
     ax.fill_between(rounds, 0, fed["norm_changes"], alpha=0.15, color=C["federated"])
-    ax.set_title("Parameter Convergence\n(‖Δ global coef‖ per Round)", fontweight="bold")
+    ax.set_title("Parameter Convergence\n‖Δ global coef‖ per Round", fontweight="bold")
     ax.set_xlabel("Federation Round"); ax.set_ylabel("L2 Norm of Δcoef")
     ax.set_xticks(rounds); sns.despine(ax=ax)
 
 
-def _plot_mse_rounds(fed, ax):
-    rounds = list(range(1, len(fed["global_mse_log"]) + 1))
+def _plot_auc_rounds(fed, ax):
+    rounds = list(range(1, len(fed["global_ll_log"]) + 1))
     for name in NAMES:
-        ax.plot(rounds, fed["round_metrics"][name]["mse"],
+        ax.plot(rounds, fed["round_metrics"][name]["auc"],
                 "o-", color=C[name], linewidth=2, markersize=4, label=DISPLAY[name])
-    ax.plot(rounds, fed["global_mse_log"], "s--", color=C["federated"],
-            linewidth=2.5, markersize=6, label="Global weighted MSE")
-    ax.set_title("Federated MSE per Round\n(Global model on each cohort's test set)", fontweight="bold")
-    ax.set_xlabel("Federation Round"); ax.set_ylabel("MSE")
-    ax.legend(fontsize=7.5); ax.set_xticks(rounds); sns.despine(ax=ax)
+    ax.axhline(0.5, color="grey", linewidth=1, linestyle=":", label="Random baseline")
+    ax.set_title("AUC per Federation Round\n(Global model on each cohort test set)", fontweight="bold")
+    ax.set_xlabel("Federation Round"); ax.set_ylabel("AUC-ROC")
+    ax.legend(fontsize=7); ax.set_xticks(rounds); sns.despine(ax=ax)
 
 
-def _plot_r2_rounds(fed, ax):
-    rounds = list(range(1, len(fed["global_mse_log"]) + 1))
+def _plot_f1_rounds(fed, ax):
+    rounds = list(range(1, len(fed["global_ll_log"]) + 1))
     for name in NAMES:
-        ax.plot(rounds, fed["round_metrics"][name]["r2"],
+        ax.plot(rounds, fed["round_metrics"][name]["f1"],
                 "o-", color=C[name], linewidth=2, markersize=4, label=DISPLAY[name])
-    ax.set_title("Federated R² per Round\n(Global model on each cohort's test set)", fontweight="bold")
-    ax.set_xlabel("Federation Round"); ax.set_ylabel("R²")
-    ax.legend(fontsize=8); ax.set_xticks(rounds); sns.despine(ax=ax)
+    ax.set_title("F1 Score per Federation Round\n(Global model on each cohort test set)", fontweight="bold")
+    ax.set_xlabel("Federation Round"); ax.set_ylabel("F1 Score")
+    ax.legend(fontsize=7); ax.set_xticks(rounds); sns.despine(ax=ax)
 
 
-def _plot_cross_cohort_rmse(dfs, local_models, fed, ax):
+def _plot_ll_rounds(fed, ax):
+    rounds = list(range(1, len(fed["global_ll_log"]) + 1))
+    for name in NAMES:
+        ax.plot(rounds, fed["round_metrics"][name]["ll"],
+                "o-", color=C[name], linewidth=2, markersize=4, label=DISPLAY[name])
+    ax.plot(rounds, fed["global_ll_log"], "s--", color=C["federated"],
+            linewidth=2.5, markersize=6, label="Global avg")
+    ax.set_title("Log-Loss per Federation Round", fontweight="bold")
+    ax.set_xlabel("Federation Round"); ax.set_ylabel("Log Loss")
+    ax.legend(fontsize=7); ax.set_xticks(rounds); sns.despine(ax=ax)
+
+
+def _plot_beta_scatter(true_betas, fed_coef, ax):
+    """Figure 3 equivalent: true PRS effect sizes vs federated coefficients."""
+    r, p = pearsonr(true_betas, fed_coef)
+    rmse = np.sqrt(np.mean((true_betas - fed_coef) ** 2))
+    mask = np.abs(true_betas) > 1e-8
+    mape = np.mean(np.abs((true_betas[mask] - fed_coef[mask]) / true_betas[mask])) * 100
+
+    ax.scatter(true_betas, fed_coef, alpha=0.4, s=18,
+               color=C["federated"], edgecolors="none")
+
+    lim = max(np.abs(true_betas).max(), np.abs(fed_coef).max()) * 1.1
+    ax.plot([-lim, lim], [-lim, lim], "k--", linewidth=1, alpha=0.5, label="Perfect recovery")
+    ax.axhline(0, color="grey", linewidth=0.5, alpha=0.4)
+    ax.axvline(0, color="grey", linewidth=0.5, alpha=0.4)
+
+    ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim)
+    ax.set_title(
+        f"Figure 3 – True PRS Effect Sizes vs\nFederated Estimated Coefficients",
+        fontweight="bold")
+    ax.set_xlabel("True PRS Beta (effect size)")
+    ax.set_ylabel("Federated Estimated Coefficient")
+    textstr = (f"Pearson r = {r:.4f}\n"
+               f"p = {p:.2e}\n"
+               f"RMSE = {rmse:.5f}\n"
+               f"MAPE = {mape:.1f}%\n"
+               f"N variants = {len(true_betas)}")
+    ax.text(0.04, 0.96, textstr, transform=ax.transAxes, fontsize=8.5,
+            verticalalignment="top",
+            bbox=dict(boxstyle="round,pad=0.4", facecolor="white", alpha=0.85))
+    ax.legend(fontsize=8); sns.despine(ax=ax)
+
+
+def _plot_metrics_bar(dfs, fed, local_models, ax):
     """
-    Heatmap: RMSE[train_cohort × test_cohort] for local models + federated.
-    Lower = better cross-cohort generalisation.
+    Bar chart: final-round per-cohort AUC for local-only vs federated model.
     """
-    all_keys   = NAMES + ["federated"]
-    matrix     = np.zeros((len(all_keys), len(NAMES)))
+    x      = np.arange(len(NAMES))
+    width  = 0.35
+    local_auc = []
+    fed_auc   = []
+    for name in NAMES:
+        # Local model AUC on its own test set
+        probs_l = expit(dfs[name]["X_te"] @ local_models[name].coef_[0]
+                        + local_models[name].intercept_[0])
+        local_auc.append(roc_auc_score(dfs[name]["y_te"], probs_l))
+        # Federated AUC on the same test set
+        probs_f = expit(dfs[name]["X_te"] @ fed["global_coef"] + fed["global_int"][0])
+        fed_auc.append(roc_auc_score(dfs[name]["y_te"], probs_f))
 
-    for i, train in enumerate(NAMES):
-        for j, test in enumerate(NAMES):
-            yp   = local_models[train].predict(dfs[test]["X_test"])
-            matrix[i, j] = np.sqrt(mean_squared_error(dfs[test]["y_test"], yp))
-    for j, test in enumerate(NAMES):
-        yp = dfs[test]["X_test"] @ fed["global_coef"] + fed["global_int"][0]
-        matrix[3, j] = np.sqrt(mean_squared_error(dfs[test]["y_test"], yp))
-
-    im = ax.imshow(matrix, cmap="YlOrRd", aspect="auto", vmin=0)
-    plt.colorbar(im, ax=ax, label="RMSE", shrink=0.8)
-    ax.set_xticks(range(len(NAMES)))
-    ax.set_yticks(range(len(all_keys)))
-    ax.set_xticklabels([DISPLAY[n] for n in NAMES], fontsize=7.5, rotation=15, ha="right")
-    ax.set_yticklabels([DISPLAY[n] for n in all_keys], fontsize=7.5)
-    for i in range(len(all_keys)):
-        for j in range(len(NAMES)):
-            ax.text(j, i, f"{matrix[i,j]:.5f}", ha="center", va="center",
-                    fontsize=7, color="black" if matrix[i,j] < matrix.max()*0.6 else "white")
-    ax.set_title("Cross-Cohort RMSE\n(Row = model source, Col = test cohort)", fontweight="bold")
-    ax.set_xlabel("Test Cohort"); ax.set_ylabel("Model Trained On")
-    # Highlight federated row
-    rect = plt.Rectangle((-0.5, 2.5), len(NAMES), 1,
-                          fill=False, edgecolor="#EF4444", linewidth=2.5)
-    ax.add_patch(rect)
-
-
-def _plot_snp_weight_diff(dfs, local_models, fed, ax):
-    """
-    Top 20 SNPs where young vs old model weights diverge most.
-    Shows the federated weight as a dot for comparison.
-    """
-    feat_cols = dfs["USA_young"]["feat_cols"]
-    cy  = local_models["USA_young"].coef_
-    co  = local_models["USA_old"].coef_
-    cf  = fed["global_coef"]
-
-    diff    = np.abs(cy - co)
-    top_idx = np.argsort(diff)[-20:][::-1]
-
-    snp_labels = [feat_cols[i].split(":")[0] + ":" + feat_cols[i].split(":")[1]
-                  if ":" in feat_cols[i] else feat_cols[i]
-                  for i in top_idx]
-    y_pos = np.arange(len(top_idx))
-
-    ax.barh(y_pos,  cy[top_idx], 0.35, color=C["USA_young"], alpha=0.8,
-            label="Young", align="center")
-    ax.barh(y_pos - 0.35, co[top_idx], 0.35, color=C["USA_old"], alpha=0.8,
-            label="Old", align="center")
-    ax.scatter(cf[top_idx], y_pos - 0.175, color=C["federated"], zorder=5,
-               s=30, label="Federated", marker="D")
-
-    ax.set_yticks(y_pos - 0.175)
-    ax.set_yticklabels(snp_labels, fontsize=6.5)
-    ax.axvline(0, color="black", linewidth=0.7)
-    ax.set_title("Top-20 SNPs: Young vs Old Model Weight Divergence\n(Federated weight shown as ◆)", fontweight="bold")
-    ax.set_xlabel("Standardised Coefficient")
-    ax.legend(fontsize=8, loc="lower right"); sns.despine(ax=ax)
+    bars1 = ax.bar(x - width/2, local_auc, width, label="Local-only model",
+                   color=[C[n] for n in NAMES], alpha=0.45, edgecolor="white")
+    bars2 = ax.bar(x + width/2, fed_auc,   width, label="Federated model",
+                   color=[C[n] for n in NAMES], alpha=0.9, edgecolor="white")
+    for bar in list(bars1) + list(bars2):
+        h = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2, h + 0.002,
+                f"{h:.4f}", ha="center", va="bottom", fontsize=7.5)
+    ax.axhline(0.5, color="grey", linewidth=1, linestyle=":", label="Random baseline")
+    ax.set_xticks(x)
+    ax.set_xticklabels([DISPLAY[n] for n in NAMES], fontsize=8)
+    ax.set_ylabel("AUC-ROC"); ax.set_ylim(0.45, max(fed_auc + local_auc) * 1.12)
+    ax.set_title("Local-Only vs Federated AUC per Cohort", fontweight="bold")
+    ax.legend(fontsize=8); sns.despine(ax=ax)
 
 
-def _plot_scatter_trio(dfs, fed, local_models, axes):
-    """
-    For each cohort: scatter true PRS vs predicted PRS for BOTH the
-    cohort's own local model (faint) and the federated model (solid).
-    2000-point subsample.
-    """
-    rng = np.random.default_rng(42)
-    for i, (name, ax) in enumerate(zip(NAMES, axes)):
-        X_te = dfs[name]["X_test"]
-        y_te = dfs[name]["y_test"]
-        idx  = rng.choice(len(y_te), size=min(2000, len(y_te)), replace=False)
+def _plot_final_metrics_table(dfs, fed, ax):
+    """Text table of the documented performance metrics."""
+    X_te_all = np.vstack([dfs[n]["X_te"] for n in NAMES])
+    y_te_all  = np.concatenate([dfs[n]["y_te"] for n in NAMES])
+    probs = expit(X_te_all @ fed["global_coef"] + fed["global_int"][0])
+    preds = (probs >= 0.5).astype(int)
 
-        y_local = local_models[name].predict(X_te[idx])
-        y_fed   = X_te[idx] @ fed["global_coef"] + fed["global_int"][0]
+    metrics = [
+        ("Test Accuracy",  f"{accuracy_score(y_te_all, preds):.4f}",   "0.5970"),
+        ("Test AUC",       f"{roc_auc_score(y_te_all, probs):.4f}",    "0.6396"),
+        ("Log Loss",       f"{log_loss(y_te_all, probs):.4f}",         "0.6741"),
+        ("Precision",      f"{precision_score(y_te_all, preds, zero_division=0):.4f}", "0.6232"),
+        ("Recall",         f"{recall_score(y_te_all, preds):.4f}",     "0.4909"),
+        ("F1 Score",       f"{f1_score(y_te_all, preds):.4f}",         "0.5492"),
+    ]
+    ax.axis("off")
+    col_labels = ["Metric", "This Run", "Documented"]
+    table = ax.table(
+        cellText   = metrics,
+        colLabels  = col_labels,
+        loc        = "center",
+        cellLoc    = "center",
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1.2, 2.0)
+    # Header styling
+    for j in range(3):
+        table[(0, j)].set_facecolor("#374151")
+        table[(0, j)].set_text_props(color="white", fontweight="bold")
+    # Row colouring
+    for i in range(1, len(metrics) + 1):
+        bg = "#F9FAFB" if i % 2 == 0 else "white"
+        for j in range(3):
+            table[(i, j)].set_facecolor(bg)
 
-        lim = [y_te[idx].min() - 0.05, y_te[idx].max() + 0.05]
-        ax.scatter(y_te[idx], y_local, alpha=0.15, s=5, color=C[name],
-                   label="Local model")
-        ax.scatter(y_te[idx], y_fed,   alpha=0.25, s=5, color=C["federated"],
-                   label="Federated model")
-        ax.plot(lim, lim, "k--", linewidth=1, alpha=0.5)
-
-        mse_l = mean_squared_error(y_te[idx], y_local)
-        mse_f = mean_squared_error(y_te[idx], y_fed)
-        r2_f  = r2_score(y_te[idx], y_fed)
-
-        ax.set_title(
-            f"{DISPLAY[name]}\nLocal RMSE={np.sqrt(mse_l):.5f}  "
-            f"Fed RMSE={np.sqrt(mse_f):.5f}  R²={r2_f:.6f}",
-            fontweight="bold", fontsize=8)
-        ax.set_xlabel("True PRS", fontsize=8); ax.set_ylabel("Predicted PRS", fontsize=8)
-        ax.set_xlim(lim); ax.set_ylim(lim)
-        ax.legend(fontsize=7); sns.despine(ax=ax)
+    ax.set_title("Combined Test Set — Classification Metrics\n(vs Documented Scenario)",
+                 fontweight="bold", pad=20)
 
 
-# ── Master report generator ──────────────────────────────────────────────────
+# ── Master generator ──────────────────────────────────────────────────────────
 
 def generate_report(
-    data_dir    : str = ".",
-    output_dir  : str = "results",
+    data_dir    : str  = ".",
+    output_dir  : str  = "results",
     cohort_metas: list = None,
-    n_rounds    : int = 10,
-) -> list[str]:
-    """
-    Load data, run the full federation, save the trained model, build two
-    rich figures.  Returns list of output paths (PNGs + model files).
-    """
+    n_rounds    : int  = 10,
+) -> list:
     os.makedirs(output_dir, exist_ok=True)
+
     print("  [plot] Loading datasets …")
-    dfs = _load(data_dir)
+    dfs, true_betas = _load(data_dir)
+
     print(f"  [plot] Simulating federation ({n_rounds} rounds) …")
     fed = _simulate_federation(dfs, n_rounds=n_rounds, local_epochs=5)
+
     print("  [plot] Fitting local models …")
     local_m = _local_models(dfs)
 
-    # ── Persist the final global model ───────────────────────────────────────
+    # Save model
     print("  [plot] Saving trained model …")
     from model_io import save_model
     from model import create_model, set_parameters as _set_params
-    final_model = create_model(fed["global_coef"].shape[0])
+    final_model = create_model()
     _set_params(final_model, [fed["global_coef"], fed["global_int"]])
     model_paths = save_model(
         model        = final_model,
-        feature_cols = dfs[NAMES[0]]["feat_cols"],
+        feature_cols = dfs[NAMES[0]]["snp_cols"],
         cohort_metas = cohort_metas or [],
         n_rounds     = n_rounds,
         output_dir   = output_dir,
+        true_betas   = true_betas,
     )
 
     sns.set_theme(style="whitegrid", font_scale=1.0)
     paths = list(model_paths.values())
 
-    # ── Page 1: Federation mechanics ─────────────────────────────────────────
+    # ── Page 1: Cohort & mechanics ────────────────────────────────────────────
     fig1, axes1 = plt.subplots(2, 3, figsize=(18, 11))
     fig1.suptitle(
         "Federated PRS Learning — Page 1: Cohort Characteristics & Federation Mechanics\n"
-        "Flower FedAvg · SGDRegressor · 3 Age-Imbalanced Cohorts · 313 SNPs + Age",
+        "Flower FedAvg · Logistic Regression · 3 Age-Imbalanced Cohorts · 313 SNPs",
         fontsize=12, fontweight="bold")
     fig1.subplots_adjust(hspace=0.48, wspace=0.32)
 
     _plot_age_dist(dfs, axes1[0, 0])
-    _plot_prs_dist(dfs, axes1[0, 1])
-    _plot_case_rate(dfs, axes1[0, 2])
-    _plot_param_convergence(fed, axes1[1, 0])
-    _plot_mse_rounds(fed, axes1[1, 1])
-    _plot_r2_rounds(fed, axes1[1, 2])
+    _plot_case_rate(dfs, axes1[0, 1])
+    _plot_norm_convergence(fed, axes1[0, 2])
+    _plot_auc_rounds(fed, axes1[1, 0])
+    _plot_f1_rounds(fed, axes1[1, 1])
+    _plot_ll_rounds(fed, axes1[1, 2])
 
     p1 = os.path.join(output_dir, "prs_federation_p1_mechanics.png")
     fig1.savefig(p1, dpi=150, bbox_inches="tight")
@@ -344,23 +356,40 @@ def generate_report(
     print(f"  [plot] Saved → {p1}")
     paths.append(p1)
 
-    # ── Page 2: Model quality & biology ──────────────────────────────────────
-    fig2 = plt.figure(figsize=(18, 14))
+    # ── Page 2: Figure 3 + metrics ────────────────────────────────────────────
+    fig2 = plt.figure(figsize=(18, 12))
     fig2.suptitle(
-        "Federated PRS Learning — Page 2: Model Quality & Biological Insights\n"
-        "Cross-Cohort Generalisation · SNP Weight Divergence · Prediction Scatter",
+        "Federated PRS Learning — Page 2: Coefficient Recovery & Predictive Performance\n"
+        "Figure 3 Equivalent: True Effect Sizes vs Federated Coefficients",
         fontsize=12, fontweight="bold")
-    gs2 = gridspec.GridSpec(2, 3, figure=fig2, hspace=0.48, wspace=0.35)
+    gs2 = gridspec.GridSpec(2, 2, figure=fig2, hspace=0.5, wspace=0.35)
 
-    ax_hm   = fig2.add_subplot(gs2[0, :2])   # wide heatmap
-    ax_snp  = fig2.add_subplot(gs2[0, 2])    # SNP weights
-    ax_sc   = [fig2.add_subplot(gs2[1, j]) for j in range(3)]
+    ax_beta = fig2.add_subplot(gs2[0, 0])
+    ax_auc  = fig2.add_subplot(gs2[0, 1])
+    ax_tbl  = fig2.add_subplot(gs2[1, 0])
+    ax_coef = fig2.add_subplot(gs2[1, 1])
 
-    _plot_cross_cohort_rmse(dfs, local_m, fed, ax_hm)
-    _plot_snp_weight_diff(dfs, local_m, fed, ax_snp)
-    _plot_scatter_trio(dfs, fed, local_m, ax_sc)
+    _plot_beta_scatter(true_betas, fed["global_coef"], ax_beta)
+    _plot_metrics_bar(dfs, fed, local_m, ax_auc)
+    _plot_final_metrics_table(dfs, fed, ax_tbl)
 
-    p2 = os.path.join(output_dir, "prs_federation_p2_quality.png")
+    # Coefficient magnitude bar: top 20 SNPs by |federated coef|
+    top20 = np.argsort(np.abs(fed["global_coef"]))[-20:][::-1]
+    snp_labels = [dfs[NAMES[0]]["snp_cols"][i][:18] + "…"
+                  if len(dfs[NAMES[0]]["snp_cols"][i]) > 18
+                  else dfs[NAMES[0]]["snp_cols"][i]
+                  for i in top20]
+    colors = [C["federated"] if fed["global_coef"][i] > 0 else C["USA_old"] for i in top20]
+    ax_coef.barh(range(20), fed["global_coef"][top20], color=colors, alpha=0.85)
+    ax_coef.set_yticks(range(20))
+    ax_coef.set_yticklabels(snp_labels, fontsize=6.5)
+    ax_coef.axvline(0, color="black", linewidth=0.7)
+    ax_coef.set_title("Top-20 SNPs by |Federated Coefficient|\n(red=positive, amber=negative effect)",
+                      fontweight="bold")
+    ax_coef.set_xlabel("Federated Coefficient")
+    sns.despine(ax=ax_coef)
+
+    p2 = os.path.join(output_dir, "prs_federation_p2_figure3.png")
     fig2.savefig(p2, dpi=150, bbox_inches="tight")
     plt.close(fig2)
     print(f"  [plot] Saved → {p2}")

@@ -1,66 +1,71 @@
 """
 model.py
 --------
-Defines the linear regression model used for polygenic risk score prediction
-and helper functions to convert between sklearn model parameters and the
-numpy arrays that Flower exchanges between server and clients.
+Logistic regression model for federated case/control PRS classification.
+
+Uses SGDClassifier with log_loss (equivalent to logistic regression) and
+class_weight='balanced' to handle the severe class imbalance (~1-2% cases).
 """
 
 import numpy as np
-from sklearn.linear_model import SGDRegressor
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.linear_model import SGDClassifier
+from sklearn.metrics import (
+    accuracy_score, roc_auc_score, log_loss,
+    precision_score, recall_score, f1_score,
+)
+from scipy.special import expit
 
 
-# ── Model factory ───────────────────────────────────────────────────────────
-
-def create_model(n_features: int, random_state: int = 42) -> SGDRegressor:
+def create_model(random_state: int = 42) -> SGDClassifier:
     """
-    Return an SGDRegressor configured for online / incremental learning.
-    Using SGDRegressor (rather than LinearRegression) lets each client train
-    for multiple local epochs by calling partial_fit, which mirrors how neural
-    network clients work in Flower and makes the FedAvg aggregation natural.
+    SGDClassifier configured for federated logistic regression.
+    class_weight='balanced' is critical: with ~1% cases, an unweighted
+    model trivially predicts all-negative.
     """
-    return SGDRegressor(
-        loss           = "squared_error",
-        penalty        = "l2",
-        alpha          = 1e-4,          # L2 regularisation – helps with 313 SNPs
-        learning_rate  = "invscaling",
-        eta0           = 0.01,
-        max_iter       = 1,             # we control epochs manually via partial_fit
-        warm_start     = True,
-        random_state   = random_state,
+    return SGDClassifier(
+        loss         = "log_loss",
+        penalty      = "l2",
+        alpha        = 1e-4,
+        learning_rate= "invscaling",
+        eta0         = 0.01,
+        max_iter     = 1,
+        warm_start   = True,
+        class_weight = "balanced",
+        random_state = random_state,
     )
 
 
-# ── Parameter serialisation ─────────────────────────────────────────────────
-
-def get_parameters(model: SGDRegressor) -> list[np.ndarray]:
-    """
-    Extract the model weights and bias as a list of numpy arrays.
-    If the model has never been fit, return zero-initialised arrays.
-    """
+def get_parameters(model: SGDClassifier) -> list:
     if hasattr(model, "coef_"):
-        return [model.coef_.copy(), np.array([model.intercept_[0]])]
-    # Not yet fit – return zeros (shape will be inferred later)
+        return [model.coef_[0].copy(), model.intercept_.copy()]
     return []
 
 
-def set_parameters(model: SGDRegressor, parameters: list[np.ndarray]) -> SGDRegressor:
-    """
-    Push aggregated parameters back into a model instance.
-    Handles the case where the model has not yet been initialised by sklearn.
-    """
+def set_parameters(model, parameters, n_features=None):
     coef, intercept = parameters
-    model.coef_      = coef.copy()
+    model.coef_      = coef.reshape(1, -1).copy()
     model.intercept_ = intercept.copy()
+    if not hasattr(model, "classes_"):
+        model.classes_ = np.array([0, 1])
     return model
 
 
-# ── Evaluation helpers ───────────────────────────────────────────────────────
+def evaluate_model(model, X, y, threshold=0.5):
+    coef      = model.coef_[0]
+    intercept = model.intercept_[0]
+    probs     = expit(X @ coef + intercept)
+    preds     = (probs >= threshold).astype(int)
 
-def evaluate_model(model: SGDRegressor, X: np.ndarray, y: np.ndarray) -> dict:
-    """Return MSE and R² for a fitted model on the given data."""
-    y_pred = model.predict(X)
-    mse    = float(mean_squared_error(y, y_pred))
-    r2     = float(r2_score(y, y_pred))
-    return {"mse": mse, "r2": r2}
+    if len(np.unique(y)) < 2:
+        return dict(accuracy=float("nan"), auc=float("nan"),
+                    log_loss_val=float("nan"), precision=float("nan"),
+                    recall=float("nan"), f1=float("nan"))
+
+    return dict(
+        accuracy    = float(accuracy_score(y, preds)),
+        auc         = float(roc_auc_score(y, probs)),
+        log_loss_val= float(log_loss(y, probs)),
+        precision   = float(precision_score(y, preds, zero_division=0)),
+        recall      = float(recall_score(y, preds, zero_division=0)),
+        f1          = float(f1_score(y, preds, zero_division=0)),
+    )
