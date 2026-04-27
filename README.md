@@ -26,23 +26,30 @@ that generalises across age groups better than any single-cohort model.
 
 ```
 prs_federation/
-├── main.py          Entry point – runs the full simulation
-├── data_utils.py    CSV loading, feature engineering, train/test split
-├── model.py         SGDRegressor wrapper + Flower parameter serialisation
-├── client.py        Flower NumPyClient (one per cohort)
-├── server.py        Custom FedAvg strategy with per-round metric logging
-├── plotting.py      All visualisation (6-panel results figure)
-└── results/         Output directory (created at runtime)
-    └── prs_federation_results.png
+├── app/
+  ├── main.py          Entry point – runs the full simulation
+  ├── data_utils.py    CSV loading, feature engineering, train/test split
+  ├── model.py         SGDRegressor wrapper + Flower parameter serialisation
+  ├── client.py        Flower NumPyClient (one per cohort)
+  ├── server.py        Custom FedAvg strategy with per-round metric logging
+  ├── plotting.py      All visualisation (6-panel results figure)
+  └── results/         Output directory (created at runtime)
+      └── prs_federation_results.png
 ```
 
 ---
 
 ## Installation
-
+UV:
 ```bash
-pip install flwr[simulation] scikit-learn pandas numpy matplotlib seaborn
+uv sync
 ```
+Docker:
+```bash
+docker build -t fed-a-crate-demo .
+docker run -it --rm fed-a-crate-demo
+```
+
 
 ---
 
