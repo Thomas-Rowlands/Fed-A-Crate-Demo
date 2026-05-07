@@ -1,114 +1,117 @@
 """
-main.py — Federated PRS Case/Control Classification Demo
-=========================================================
-Scenario: Age-imbalanced federated clients, logistic regression,
-coefficient recovery analysis vs true PRS effect sizes.
+main.py — Federated PRS demo with TRE-narrative console output.
+
+Demonstrates training a polygenic risk score classifier across three Trusted
+Research Environments (TREs) without data leaving each TRE.  Only model
+weights cross the boundary; the central server aggregates them via FedAvg.
 
 Run:
-    python main.py [--data-dir PATH] [--rounds N] [--output-dir PATH]
+    python app/main.py --data-dir data
 """
 
-import argparse, os, sys
-import numpy as np
-import flwr as fl
-from flwr.common import parameters_to_ndarrays
+# ── Suppress third-party log noise BEFORE importing flwr/ray ────────────────
+import os, sys, warnings
+warnings.filterwarnings("ignore")
+os.environ["RAY_DEDUP_LOGS"]               = "1"
+os.environ["RAY_DISABLE_IMPORT_WARNING"]   = "1"
+os.environ["RAY_LOG_TO_STDERR"]            = "0"
+os.environ["PYTHONWARNINGS"]               = "ignore"
+os.environ["RAY_DEDUP_LOGS_AGG_WINDOW_S"]  = "0"
+# Disable Ray's metrics export (otherwise it logs 'failed to connect to metrics agent')
+os.environ["RAY_enable_metrics_collection"] = "false"
+os.environ["RAY_metrics_report_interval_ms"] = "0"
+os.environ["GRPC_VERBOSITY"]               = "ERROR"
+os.environ["GRPC_TRACE"]                   = ""
 
-from data_utils  import load_all_datasets, recover_true_betas
-from model       import create_model, get_parameters, set_parameters, evaluate_model
-from client      import make_client_fn
-from server      import PRSFedAvg
-from plotting    import generate_report
-from scipy.stats import pearsonr
+import argparse
+import logging
+import numpy as np
+
+# Silence Flower's loggers before flwr is imported
+logging.getLogger("flwr").setLevel(logging.ERROR)
+logging.getLogger("ray").setLevel(logging.ERROR)
+
+import flwr as fl
+from scipy.stats   import pearsonr
 from scipy.special import expit
+from sklearn.metrics import (accuracy_score, roc_auc_score, log_loss,
+                              precision_score, recall_score, f1_score)
+
+# Local modules
+from data_utils import load_all_datasets, recover_true_betas
+from client     import make_client_fn
+from server     import TREStrategy
+from plotting   import generate_report
+from tre_logger import (
+    silence_third_party_logs, banner, section,
+    cohort_summary_table, final_metrics_table, coef_recovery_table, done,
+)
 
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--data-dir",   default=".")
+    p.add_argument("--data-dir",   default="data")
     p.add_argument("--rounds",     type=int, default=10)
     p.add_argument("--output-dir", default="results")
     return p.parse_args()
 
 
-def print_cohort_summary(metas):
-    print("\n" + "="*70)
-    print("  COHORT SUMMARY  (Scenario: strong age imbalance)")
-    print("="*70)
-    print(f"  {'Cohort':<14} {'N':>7} {'<41y':>7} {'>69y':>7} "
-          f"{'Cases':>7} {'Controls':>9} {'Case%':>7}")
-    print("-"*70)
-    for m in metas:
-        print(f"  {m['cohort_label']:<14} {m['n_samples']:>7,} "
-              f"{m['pct_under41']:>6.1f}% {m['pct_over69']:>6.1f}% "
-              f"{m['n_cases']:>7} {m['n_controls']:>9,} "
-              f"{m['case_rate']*100:>6.2f}%")
-    print("="*70 + "\n")
-
-
-def print_final_summary(results_log, cohort_labels, final_params, true_betas):
-    eval_log = results_log.get("eval", {})
-    if not eval_log:
-        return
-    last = eval_log[max(eval_log.keys())]
-
-    print("\n" + "="*60)
-    print("  FINAL CLASSIFICATION METRICS  (combined test set)")
-    print("="*60)
-    for label in cohort_labels:
-        m = last.get(label, {})
-        print(f"  {label:<14}  AUC={m.get('test_auc', float('nan')):.4f}  "
-              f"F1={m.get('test_f1', float('nan')):.4f}  "
-              f"Acc={m.get('test_acc', float('nan')):.4f}")
-
-    if final_params and true_betas is not None:
-        coef = final_params[0]
-        r, p = pearsonr(true_betas, coef)
-        rmse = float(np.sqrt(np.mean((true_betas - coef)**2)))
-        mask = np.abs(true_betas) > 1e-8
-        mape = float(np.mean(np.abs((true_betas[mask]-coef[mask])/true_betas[mask]))*100)
-        print()
-        print("  COEFFICIENT RECOVERY (vs true PRS effect sizes)")
-        print(f"  Pearson r = {r:.4f}   p = {p:.2e}")
-        print(f"  RMSE      = {rmse:.6f}")
-        print(f"  MAPE      = {mape:.2f}%")
-        print(f"  N variants= {len(coef)}")
-        print()
-        print("  Documented targets:")
-        print("  Pearson r=0.8168  RMSE=0.051481  MAPE=76.15%")
-        print("  AUC=0.6396  Acc=0.5970  F1=0.5492")
-    print("="*60 + "\n")
+def _evaluate_combined(dfs_test, fed_coef, fed_int):
+    """Compute final metrics on the union of all three TRE test sets."""
+    X_all = np.vstack([d["X_test"] for d in dfs_test])
+    y_all = np.concatenate([d["y_test"] for d in dfs_test])
+    probs = expit(X_all @ fed_coef + fed_int[0])
+    preds = (probs >= 0.5).astype(int)
+    return dict(
+        accuracy = float(accuracy_score(y_all, preds)),
+        auc      = float(roc_auc_score(y_all, probs)),
+        log_loss = float(log_loss(y_all, probs)),
+        precision= float(precision_score(y_all, preds, average="macro", zero_division=0)),
+        recall   = float(recall_score(y_all, preds, average="macro", zero_division=0)),
+        f1       = float(f1_score(y_all, preds, average="macro", zero_division=0)),
+    )
 
 
 def main():
     args = parse_args()
 
-    print("\n" + "="*65)
-    print("  Federated PRS Case/Control Prediction")
-    print("  Framework : Flower (flwr)")
-    print("  Strategy  : FedAvg (weighted by n_samples)")
-    print("  Model     : Logistic Regression (SGDClassifier, balanced)")
-    print("  Target    : case/control (binary)")
-    print(f"  Rounds    : {args.rounds}")
-    print("="*65)
+    # Hide third-party log noise
+    silence_third_party_logs()
 
-    print("\n[1/4] Loading datasets …")
-    datasets     = load_all_datasets(data_dir=args.data_dir)
-    cohort_labels= ["USA_young", "USA_old", "USA_normal"]
-    metas        = [d[5] for d in datasets]
-    n_features   = datasets[0][0].shape[1]
-    print_cohort_summary(metas)
+    banner(
+        "Federated PRS Case/Control Prediction across 3 TREs",
+        f"Flower · FedAvg · Logistic Regression  ·  Rounds: {args.rounds}",
+    )
 
-    print("[2/4] Recovering true PRS effect sizes …")
+    # ── Step 1: Load datasets at each TRE ────────────────────────────────────
+    section(1, 4, "Loading datasets at each TRE")
+    datasets      = load_all_datasets(data_dir=args.data_dir)
+    cohort_labels = ["USA_young", "USA_old", "USA_normal"]
+    metas         = [d[5] for d in datasets]
+    n_features    = datasets[0][0].shape[1]
+    cohort_summary_table(metas)
+
+    # ── Step 2: Recover true PRS effect sizes (for Figure 3 comparison) ──────
+    section(2, 4, "Recovering true PRS effect sizes (for evaluation only)")
     ref_csv    = os.path.join(args.data_dir, "USA_normal.csv")
     true_betas = recover_true_betas(ref_csv)
-    print(f"  {len(true_betas)} SNP betas recovered from reference dataset.\n")
+    print(f"  {len(true_betas)} SNP betas recovered from reference dataset.")
+    print("  (These never participate in training; used only to score the federated model.)")
 
-    print("[3/4] Configuring & running Flower simulation …\n")
+    # ── Step 3: Run federated training ───────────────────────────────────────
+    section(3, 4, f"Running federated training across 3 TREs ({args.rounds} rounds)")
+    print("  Each round: Server distributes the global model to each TRE,")
+    print("  each TRE trains locally on its private data, then returns weights")
+    print("  (not data) to the server, which aggregates them with FedAvg.")
+
     results_log = {}
-    strategy    = PRSFedAvg(
+    train_counts = {label: datasets[i][0].shape[0]
+                    for i, label in enumerate(cohort_labels)}
+    strategy    = TREStrategy(
         n_features           = n_features,
         results_log          = results_log,
-        cohort_labels        = cohort_labels,
+        n_rounds             = args.rounds,
+        train_sample_counts  = train_counts,
         fraction_fit         = 1.0,
         fraction_evaluate    = 1.0,
         min_fit_clients      = 3,
@@ -117,31 +120,55 @@ def main():
     )
     client_fn = make_client_fn(datasets, cohort_labels)
 
-    fl.simulation.start_simulation(
-        client_fn        = client_fn,
-        num_clients      = 3,
-        config           = fl.server.ServerConfig(num_rounds=args.rounds),
-        strategy         = strategy,
-        client_resources = {"num_cpus": 1, "num_gpus": 0.0},
-    )
+    # Open devnull and redirect stderr at the FILE DESCRIPTOR level
+    # (Ray's C++ workers bypass Python's sys.stderr entirely; only fd-level
+    # redirection silences them.)
+    devnull_fd     = os.open(os.devnull, os.O_WRONLY)
+    saved_stderr_fd = os.dup(2)              # back up original stderr fd
+    os.dup2(devnull_fd, 2)                   # point fd 2 (stderr) to /dev/null
 
-    # Retrieve final global parameters from strategy
-    final_params = getattr(strategy, "_last_parameters", None)
-    print_final_summary(results_log, cohort_labels, final_params, true_betas)
+    try:
+        fl.simulation.start_simulation(
+            client_fn        = client_fn,
+            num_clients      = 3,
+            config           = fl.server.ServerConfig(num_rounds=args.rounds),
+            strategy         = strategy,
+            client_resources = {"num_cpus": 1, "num_gpus": 0.0},
+        )
 
-    print("[4/4] Generating plots and saving model …")
-    output_paths = generate_report(
-        data_dir     = args.data_dir,
-        output_dir   = args.output_dir,
-        cohort_metas = metas,
-        n_rounds     = args.rounds,
-    )
+        final_params = strategy._last_parameters
 
-    print("\n  Done!  Outputs:")
-    for p in output_paths:
-        print(f"    {os.path.abspath(p)}")
-    print()
-    return output_paths
+        # ── Step 4: Final evaluation, save model, generate plots ─────────────
+        section(4, 4, "Saving global model & generating plots")
+
+        test_views = [
+            {"X_test": d[1], "y_test": d[3]} for d in datasets
+        ]
+        metrics = _evaluate_combined(test_views, final_params[0], final_params[1])
+        final_metrics_table(metrics)
+
+        coef = final_params[0]
+        r, p = pearsonr(true_betas, coef)
+        rmse = float(np.sqrt(np.mean((true_betas - coef) ** 2)))
+        mask = np.abs(true_betas) > 1e-8
+        mape = float(np.mean(np.abs((true_betas[mask] - coef[mask]) / true_betas[mask])) * 100)
+        coef_recovery_table(
+            dict(pearson_r=r, rmse=rmse, mape=mape, n=len(coef)),
+        )
+
+        output_paths = generate_report(
+            data_dir     = args.data_dir,
+            output_dir   = args.output_dir,
+            cohort_metas = metas,
+            n_rounds     = args.rounds,
+        )
+
+        done(output_paths)
+    finally:
+        # Keep stderr suppressed (Ray shutdown still emits errors after
+        # we exit this function). The OS will clean up on process exit.
+        os.close(devnull_fd)
+        os.close(saved_stderr_fd)
 
 
 if __name__ == "__main__":

@@ -1,10 +1,8 @@
 """
-model.py
---------
-Logistic regression model for federated case/control PRS classification.
+model.py — Logistic regression for federated case/control PRS classification.
 
-Uses SGDClassifier with log_loss (equivalent to logistic regression) and
-class_weight='balanced' to handle the severe class imbalance (~1-2% cases).
+SGDClassifier with log_loss is logistic regression, with class_weight='balanced'
+to handle the severe class imbalance (~1–2% cases per cohort).
 """
 
 import numpy as np
@@ -17,11 +15,6 @@ from scipy.special import expit
 
 
 def create_model(random_state: int = 42) -> SGDClassifier:
-    """
-    SGDClassifier configured for federated logistic regression.
-    class_weight='balanced' is critical: with ~1% cases, an unweighted
-    model trivially predicts all-negative.
-    """
     return SGDClassifier(
         loss         = "log_loss",
         penalty      = "l2",
@@ -41,7 +34,7 @@ def get_parameters(model: SGDClassifier) -> list:
     return []
 
 
-def set_parameters(model, parameters, n_features=None):
+def set_parameters(model, parameters):
     coef, intercept = parameters
     model.coef_      = coef.reshape(1, -1).copy()
     model.intercept_ = intercept.copy()
@@ -50,7 +43,7 @@ def set_parameters(model, parameters, n_features=None):
     return model
 
 
-def evaluate_model(model, X, y, threshold=0.5):
+def evaluate_model(model, X, y, threshold: float = 0.5) -> dict:
     coef      = model.coef_[0]
     intercept = model.intercept_[0]
     probs     = expit(X @ coef + intercept)
@@ -65,7 +58,7 @@ def evaluate_model(model, X, y, threshold=0.5):
         accuracy    = float(accuracy_score(y, preds)),
         auc         = float(roc_auc_score(y, probs)),
         log_loss_val= float(log_loss(y, probs)),
-        precision   = float(precision_score(y, preds, zero_division=0)),
-        recall      = float(recall_score(y, preds, zero_division=0)),
-        f1          = float(f1_score(y, preds, zero_division=0)),
+        precision   = float(precision_score(y, preds, average="macro", zero_division=0)),
+        recall      = float(recall_score(y, preds, average="macro", zero_division=0)),
+        f1          = float(f1_score(y, preds, average="macro", zero_division=0)),
     )
