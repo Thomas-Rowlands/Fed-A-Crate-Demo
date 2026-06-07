@@ -15,7 +15,7 @@ import numpy as np
 import flwr as fl
 from flwr.common import Context
 
-from model import (create_model, get_parameters,
+from simulation.app.model import (create_model, get_parameters,
                     set_parameters, evaluate_model)
 
 LOCAL_EPOCHS = 5

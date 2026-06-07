@@ -267,8 +267,8 @@ def generate_report(data_dir=".", output_dir="results",
     local_m = _local_models(dfs)
 
     # Save model
-    from model_io import save_model
-    from model    import create_model, set_parameters
+    from simulation.app.model_io import save_model
+    from simulation.app.model    import create_model, set_parameters
     final_model = create_model()
     set_parameters(final_model, [fed["global_coef"], fed["global_int"]])
     model_paths = save_model(final_model, dfs[NAMES[0]]["snp_cols"],

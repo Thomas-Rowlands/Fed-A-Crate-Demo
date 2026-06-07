@@ -36,13 +36,11 @@ from scipy.stats   import pearsonr
 from scipy.special import expit
 from sklearn.metrics import (accuracy_score, roc_auc_score, log_loss,
                               precision_score, recall_score, f1_score)
-
-# Local modules
-from data_utils import load_all_datasets, recover_true_betas
-from client     import make_client_fn
-from server     import TREStrategy
-from plotting   import generate_report
-from tre_logger import (
+from simulation.app.data_utils import load_all_datasets, recover_true_betas
+from simulation.app.client     import make_client_fn
+from simulation.app.server     import TREStrategy
+from simulation.app.plotting   import generate_report
+from simulation.app.tre_logger import (
     silence_third_party_logs, banner, section,
     cohort_summary_table, final_metrics_table, coef_recovery_table, done,
 )

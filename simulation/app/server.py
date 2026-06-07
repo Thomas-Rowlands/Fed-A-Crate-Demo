@@ -10,7 +10,7 @@ import flwr as fl
 from flwr.common import ndarrays_to_parameters, parameters_to_ndarrays
 from flwr.server.strategy import FedAvg
 
-from tre_logger import (
+from simulation.app.tre_logger import (
     TRE_INFO, round_header, round_footer, aggregating, round_eval,
     server_to_tre, training_at_tre, tre_to_server,
 )
