@@ -15,7 +15,7 @@ import flwr as fl
 from flwr.common import ndarrays_to_parameters, parameters_to_ndarrays
 from flwr.server.strategy import FedAvg
 
-from tre_logger import (
+from server.tre_logger import (
     server_round_header, server_round_footer,
     server_broadcasting, server_received_update, server_eval_summary,
 )
@@ -33,8 +33,9 @@ class TREStrategy(FedAvg):
         self.n_features   = n_features
         self.n_rounds     = n_rounds
         self.results_dir  = results_dir
-        self.history      = {"train": {}, "eval": {}, "global_ll": {}}
-        self._last_params = None
+        self.history = {"train": {}, "eval": {}, "global_ll": {}, "global": {}}
+        self._last_params   = None
+        self._last_combined = None
 
     # ── Configure fit ────────────────────────────────────────────────────────
     def configure_fit(self, server_round, parameters, client_manager):
@@ -77,9 +78,16 @@ class TREStrategy(FedAvg):
         if not results:
             return None, {}
 
-        total_n   = sum(r.num_examples for _, r in results)
-        global_ll = sum(r.num_examples * r.metrics.get("test_ll", 0.0)
-                        for _, r in results) / total_n
+        total_n = sum(r.num_examples for _, r in results)
+
+        # Sample-weighted average of every test_* metric the clients returned
+        metric_keys = ["test_auc", "test_acc", "test_f1",
+                    "test_prec", "test_rec", "test_ll"]
+        combined = {
+            k: sum(r.num_examples * r.metrics.get(k, 0.0) for _, r in results) / total_n
+            for k in metric_keys
+        }
+        global_ll = combined["test_ll"]
 
         per_tre = {}
         for _, er in results:
@@ -94,13 +102,16 @@ class TREStrategy(FedAvg):
                 "test_ll"  : er.metrics.get("test_ll"),
                 "n_samples": er.num_examples,
             }
+
         self.history["eval"][server_round]      = per_tre
         self.history["global_ll"][server_round] = global_ll
+        self.history["global"][server_round]    = combined   # new
+        self._last_combined = combined                        # new
 
-        server_eval_summary(server_round, global_ll, per_tre)
+        server_eval_summary(server_round, combined, per_tre)
         server_round_footer()
 
-        return global_ll, {"global_ll": global_ll}
+        return global_ll, combined
 
     # ── Persistence at end of run ────────────────────────────────────────────
     def save_final_artifacts(self, n_features: int):
@@ -141,6 +152,15 @@ class TREStrategy(FedAvg):
         with open(json_path, "w") as f:
             json.dump(meta, f, indent=2)
 
+        # if self._last_combined:
+        #     c = self._last_combined
+        #     print(f"\n  ── FINAL GLOBAL MODEL · federated test metrics ──")
+        #     print(f"    AUC      : {c['test_auc']:.4f}")
+        #     print(f"    F1       : {c['test_f1']:.4f}")
+        #     print(f"    Accuracy : {c['test_acc']:.4f}")
+        #     print(f"    Precision: {c['test_prec']:.4f}")
+        #     print(f"    Recall   : {c['test_rec']:.4f}")
+        #     print(f"    Log-loss : {c['test_ll']:.4f}")
         print(f"\n  Final model       → {pkl_path}")
         print(f"  Final weights     → {npz_path}")
         print(f"  Training history  → {json_path}")

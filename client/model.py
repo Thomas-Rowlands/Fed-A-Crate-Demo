@@ -48,6 +48,7 @@ def evaluate_model(model, X, y, threshold: float = 0.5) -> dict:
     intercept = model.intercept_[0]
     probs     = expit(X @ coef + intercept)
     preds     = (probs >= threshold).astype(int)
+    
 
     if len(np.unique(y)) < 2:
         return dict(accuracy=float("nan"), auc=float("nan"),

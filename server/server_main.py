@@ -4,9 +4,6 @@ server_main.py — Central Flower aggregation server.
 Listens on a TCP port, waits for the configured number of TRE clients to
 connect, then orchestrates federated training rounds via FedAvg.
 
-The server never sees patient data — only the model parameters sent
-back by each TRE after local training.
-
 Usage:
     python server_main.py \\
         --host        0.0.0.0 \\
@@ -23,8 +20,8 @@ from pathlib import Path
 
 import flwr as fl
 
-from strategy   import TREStrategy
-from tre_logger import silence_third_party_logs, banner, info, done
+from server.strategy   import TREStrategy
+from server.tre_logger import silence_third_party_logs, banner, info, done
 
 
 def parse_args():

@@ -80,10 +80,13 @@ def server_received_update(n_clients: int) -> None:
           f"{_C.DIM}(FedAvg aggregation){_C.RESET}")
 
 
-def server_eval_summary(round_num: int, global_ll: float, per_tre: dict) -> None:
+def server_eval_summary(round_num: int, combined: dict, per_tre: dict) -> None:
     print(f"  {_C.RED}[Server]{_C.RESET} "
-          f"{_C.BOLD}Evaluation complete{_C.RESET}  "
-          f"{_C.DIM}global log-loss = {global_ll:.4f}{_C.RESET}")
+          f"{_C.BOLD}Combined global model{_C.RESET}  "
+          f"{_C.DIM}AUC={combined.get('test_auc', 0):.4f}  "
+          f"F1={combined.get('test_f1', 0):.4f}  "
+          f"Acc={combined.get('test_acc', 0):.4f}  "
+          f"LogLoss={combined.get('test_ll', 0):.4f}{_C.RESET}")
     for tre_num in sorted(per_tre.keys()):
         m = per_tre[tre_num]
         colour = TRE_COLOURS.get(tre_num, "")

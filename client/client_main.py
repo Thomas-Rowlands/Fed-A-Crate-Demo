@@ -31,16 +31,18 @@ from pathlib import Path
 import numpy as np
 import flwr as fl
 
-from data_utils import load_local_cohort
-from model      import (create_model, get_parameters, set_parameters,
+from client.data_utils import load_local_cohort
+from client.model      import (create_model, get_parameters, set_parameters,
                         evaluate_model)
-from tre_logger import (
+from client.tre_logger import (
     silence_third_party_logs, banner,
     client_waiting, client_cohort_summary,
     client_round_received, client_training,
     client_returning, client_evaluated, done,
 )
+from dotenv import load_dotenv
 
+load_dotenv("config.env")
 
 LOCAL_EPOCHS = 5
 
@@ -169,7 +171,7 @@ def main():
         n_features   = X_train.shape[1],
     ).to_client()
 
-    # ── Connect to the server (with retries — handy under Docker Compose) ───
+    # ── Connect to the server (with retries)
     ca_cert = _read_ca_cert(args.certs_dir)
     client_waiting(args.server)
 
