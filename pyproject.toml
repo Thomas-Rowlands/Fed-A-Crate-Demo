@@ -1,13 +1,75 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
-name = "fed-a-crate-demo"
-version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
-requires-python = ">=3.10"
+name        = "prs-fed"
+version     = "1.0.0"
+description = "Federated PRS case/control prediction across 3 TREs (Flower Message API)"
+license     = "Apache-2.0"
 dependencies = [
-    "flwr>=1.30.0",
-    "numpy>=2.2.6",
-    "rocrate>=0.15.0",
-    "scikit-learn>=1.7.2",
-    "scipy>=1.15.3",
+    "flwr[simulation]>=1.29.0",
+    "numpy>=1.26",
+    "pandas>=2.0",
+    "scikit-learn>=1.3",
+    "scipy>=1.11",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["prs_fed"]
+
+# ── Flower App configuration ──────────────────────────────────────────────────
+# The [tool.flwr.app] block tells the Flower runtime where to find this app's
+# ServerApp and ClientApp objects. The paths are `module:variable_name`.
+[tool.flwr.app]
+publisher = "tre-federation"
+
+[tool.flwr.app.components]
+serverapp = "prs_fed.server_app:app"
+clientapp = "prs_fed.client_app:app"
+
+# Default runtime config — overridable via `flwr run --run-config "key=value"`
+# or via [tool.flwr.app.config.<run-name>] sections.
+[tool.flwr.app.config]
+num-server-rounds = 10
+local-epochs      = 5
+n-features        = 313
+threshold         = 0.5
+results-dir       = "/results"
+
+# ── Federation endpoints ──────────────────────────────────────────────────────
+# These describe how `flwr run` should reach a running SuperLink to submit
+# this app as a job. Users can pick one with `flwr run prs-fed <federation>`.
+
+
+#######################################################################
+# CONFIGURATION MIGRATION NOTICE:
+#
+# What was previously called "federation config" for SuperLink
+# connections in pyproject.toml has been renamed and moved.
+#
+# These settings are now **SuperLink connection configuration**
+# and are defined in the Flower configuration file.
+#
+# The entries below are commented out intentionally and are kept
+# only as a migration reference.
+#
+# Docs: https://flower.ai/docs/framework/ref-flower-configuration.html
+#######################################################################
+
+# [tool.flwr.federations]
+# default = "local-deployment"
+
+# # Local Docker Compose deployment (the default in compose.yml).
+# [tool.flwr.federations.local-deployment]
+# address  = "127.0.0.1:9093"
+# insecure = true
+
+# # Same deployment but with TLS enabled (uses certs from ./certs/).
+# [tool.flwr.federations.local-deployment-tls]
+# address           = "127.0.0.1:9093"
+# root-certificates = "certs/ca.crt"
+
+# # Quick in-process simulation (no Docker, single Python process).
+# [tool.flwr.federations.local-simulation]
+# options.num-supernodes = 3
