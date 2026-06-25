@@ -3,11 +3,11 @@
 # Flower Message API deployment of the PRS federation.
 #
 # Architecture:
-#   superlink
-#   serverapp 
-#   supernode-1..3
+#   superlink           — central coordinator (the "Flower control plane")
+#   serverapp           — runs the ServerApp code (orchestration + saving)
+#   supernode-1..3      — one long-running supervisor per TRE
 #   clientapp-1..3      — one ClientApp executor per TRE
-#                         
+#                         (does the actual sklearn training)
 #
 # Each TRE is supernode-N + clientapp-N. They talk over a private channel
 # inside Docker; only the supernode connects out to the SuperLink.
@@ -36,9 +36,15 @@ x-app-image: &app-image
       WORKDIR /app
       COPY --chown=app:app pyproject.toml .
       COPY --chown=app:app prs_fed/ ./prs_fed/
-      # Strip [simulation] extra (we're not running simulations here).
-      RUN sed -i 's/.*flwr\[simulation\].*/    "flwr>=1.29.0",/' pyproject.toml \
-        && python -m pip install -U --no-cache-dir .
+      RUN python -m pip install -U --no-cache-dir .
+      # Install the bundled flwrCrate module (server-side RO-Crate capture).
+      # It lives at prs_fed/flwrcrate with its own packaging metadata.
+      RUN python -m pip install --no-cache-dir ./prs_fed/flwrCrate
+      # Pre-create /results owned by the `app` user so the ServerApp can write
+      # there even when the host bind-mount directory is owned by another UID.
+      USER root
+      RUN mkdir -p /results && chown app:app /results
+      USER app
       ENTRYPOINT ["flower-superexec"]
 
 
@@ -69,7 +75,6 @@ services:
       - superlink:9091
     volumes:
       - ./results:/results
-      - ./prs_fed/flwrCrate:/flwrCrate
     depends_on:
       - superlink
 
@@ -99,6 +104,7 @@ services:
       - supernode-1:9094
     volumes:
       - ./data/USA_young.csv:/data/USA_young.csv:ro
+      - ./provenance/USA_young/ro-crate-metadata.json:/provenance/ro-crate-metadata.json:ro
     depends_on:
       - supernode-1
 
@@ -128,6 +134,7 @@ services:
       - supernode-2:9094
     volumes:
       - ./data/USA_old.csv:/data/USA_old.csv:ro
+      - ./provenance/USA_old/ro-crate-metadata.json:/provenance/ro-crate-metadata.json:ro
     depends_on:
       - supernode-2
 
@@ -157,5 +164,6 @@ services:
       - supernode-3:9094
     volumes:
       - ./data/USA_normal.csv:/data/USA_normal.csv:ro
+      - ./provenance/USA_normal/ro-crate-metadata.json:/provenance/ro-crate-metadata.json:ro
     depends_on:
       - supernode-3

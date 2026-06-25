@@ -1,10 +1,14 @@
 """
 model_io.py — Save the final aggregated model to disk.
 
-Called by server_app.py once `strategy.start()` returns. Writes three files:
+Called by server_app.py once `strategy.start()` returns. Writes:
   • prs_global_model.pkl     — sklearn SGDClassifier, ready for predict_proba
   • prs_global_weights.npz   — raw numpy coef + intercept
   • training_history.json    — per-TRE metrics for every round
+
+NOTE: Provenance (RO-Crate) output is no longer written here. It's owned
+entirely by flwrCrate, whose run-crate has the per-TRE provenance merged into
+it by prs_fed/crate_merge.py.
 """
 
 import json
@@ -25,7 +29,7 @@ def save_final_artifacts(
     n_rounds        : int,
     results_dir     : str,
 ) -> dict[str, str]:
-    """Write all three result files; return a dict of paths."""
+    """Write model, weights, and history; return a dict of paths."""
     os.makedirs(results_dir, exist_ok=True)
     paths: dict[str, str] = {}
 
