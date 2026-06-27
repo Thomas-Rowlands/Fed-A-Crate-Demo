@@ -1,18 +1,22 @@
 """
-task.py — Pure ML logic for PRS case/control classification.
+Pure machine-learning logic for PRS case/control classification.
 
-This module contains everything that does NOT depend on Flower:
-  • SGDClassifier creation and parameter (de)serialisation
-  • Local CSV loading and standardisation
-  • Metric computation
+This module is intentionally free of any Flower dependency so that the model
+can be developed, tested, and reused independently of the federation layer.
+It provides:
 
-It can be imported from both server_app.py and client_app.py; the server
-doesn't actually train, but it uses `create_model()` to materialise the
-final aggregated weights for saving.
+  * Model construction (``create_model``)
+  * Parameter (de)serialisation to and from plain NumPy arrays
+  * Local cohort loading and standardisation (``load_local_cohort``)
+  * Metric computation (``evaluate_model``)
 
-Nothing in this file changed from the previous (NumPyClient-based) version
-except for the consolidation — model.py and data_utils.py are now one module
-to match the Flower App convention.
+Both the client and server import from here. The client trains the model on
+its local cohort; the server uses ``create_model`` together with the final
+aggregated weights to materialise a model object for saving.
+
+To federate a different model, this is the only module that needs to change.
+As long as ``get_parameters``/``set_parameters`` round-trip a list of NumPy
+arrays, the rest of the pipeline is unaffected.
 """
 
 import os
@@ -43,9 +47,9 @@ def create_model(random_state: int = 42) -> SGDClassifier:
 
 
 # ── Parameter (de)serialisation ──────────────────────────────────────────────
-# Under the Message API the ArrayRecord wraps these numpy arrays.
-# We export plain numpy here; the (de)serialisation to/from ArrayRecord
-# happens at the app boundary (server_app.py / client_app.py).
+# These exchange plain NumPy arrays. Conversion to and from Flower's
+# ArrayRecord happens at the application boundary (client_app / server_app),
+# keeping this module framework-agnostic.
 
 def get_parameters(model: SGDClassifier) -> list[np.ndarray]:
     """Return [coef (1-D), intercept (1-D)]."""

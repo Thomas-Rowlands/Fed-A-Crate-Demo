@@ -1,20 +1,20 @@
 """
-client_app.py — TRE-side application.
+TRE-side application (Flower ClientApp).
 
-Under the Message API, a ClientApp is no longer a NumPyClient subclass.
-Instead, `app.train` and `app.evaluate` decorate plain functions that
-receive a Message and return a Message. Each function:
+Under the Flower Message API a ClientApp is defined by decorating handler
+functions rather than subclassing a client base class. The ``@app.train`` and
+``@app.evaluate`` handlers each receive a ``Message`` and return one. A handler:
 
-    1. Reads `msg.content["arrays"]` for the global model weights.
-    2. Reads `msg.content["config"]` for any per-round hyperparameters.
-    3. Does its local training or evaluation.
-    4. Builds a reply Message containing an ArrayRecord (for train only)
-       and a MetricRecord.
+  1. Reads the global model weights from ``msg.content["arrays"]``.
+  2. Reads per-round configuration from ``msg.content["config"]``.
+  3. Performs local training or evaluation on this TRE's private cohort.
+  4. Returns a reply ``Message`` containing the updated weights (training
+     only), a ``MetricRecord``, and a ``ConfigRecord`` carrying this TRE's
+     identity and provenance.
 
-`Context.node_config` carries the configuration that was passed to this
-SuperNode at startup (e.g. via `--node-config "cohort-csv=/data/USA_young.csv
-cohort-label=USA_young tre-num=1"`). That's where we get the local CSV path
-and TRE identity from.
+``Context.node_config`` carries the configuration passed to this SuperNode at
+startup (the local CSV path, cohort label, and TRE number), set via the
+``--node-config`` flag in the deployment configuration.
 """
 
 import json
@@ -29,9 +29,9 @@ from prs_fed.provenance import load_crate, CRATE_FIXED_PATH
 
 
 # ── Per-process cache ─────────────────────────────────────────────────────────
-# Loading the CSV is expensive (~60k rows × 313 SNPs). The SuperNode keeps
-# this Python process alive across rounds, so we cache the loaded arrays
-# on first use and re-use them every round.
+# Loading the cohort CSV is expensive (tens of thousands of rows by hundreds
+# of SNP columns). The SuperNode keeps this process alive across rounds, so the
+# loaded arrays are cached on first use and reused on every subsequent round.
 
 _local_data: dict | None = None
 
@@ -48,9 +48,10 @@ def _get_local_data(context: Context) -> dict:
 
     X_train, X_test, y_train, y_test, _scaler, meta = load_local_cohort(csv_path)
 
-    # Load this TRE's RO-Crate provenance once, from the fixed path. Returns
-    # None (and warns) if missing/malformed — federation still runs. We cache
-    # the serialized string so we don't re-serialize it every round.
+    # Load this TRE's RO-Crate once, from the fixed path. Returns None (with a
+    # warning) if the crate is missing or malformed, in which case the
+    # federation proceeds with empty provenance. The serialised string is
+    # cached so it need not be re-serialised on every round.
     crate = load_crate(CRATE_FIXED_PATH)
     crate_json = json.dumps(crate) if crate is not None else ""
 
@@ -96,21 +97,19 @@ def train(msg: Message, context: Context) -> Message:
 
     updated_arrays = ArrayRecord([model.coef_[0], model.intercept_])
     metrics = MetricRecord({
-        # `num-examples` is the default key FedAvg looks at when computing the
-        # sample-weighted average — keep that name unless you also change the
-        # `weighted_by_key` constructor arg on the server side.
-        # NOTE: every key in a MetricRecord gets sample-weight-averaged by
-        # FedAvg. Only put genuine numeric metrics here — identifiers like
-        # tre-num must NOT live here (they'd be averaged into nonsense).
+        # FedAvg sample-weight-averages every key in a MetricRecord. Only
+        # genuine numeric metrics belong here; identifiers such as the TRE
+        # number must not, or they would be averaged into a meaningless value.
+        # "num-examples" is the default key FedAvg uses for the sample weight.
         "num-examples": data["meta"]["n_train"],
         "train-auc"   : train_metrics["auc"],
         "train-f1"    : train_metrics["f1"],
         "train-acc"   : train_metrics["accuracy"],
     })
 
-    # Identity + provenance go in a ConfigRecord, which FedAvg does NOT
-    # aggregate. The RO-Crate travels verbatim as a JSON string (ConfigRecord
-    # can't hold nested objects).
+    # Identity and provenance travel in a ConfigRecord, which FedAvg does not
+    # aggregate. The RO-Crate is sent verbatim as a JSON string, since a
+    # ConfigRecord cannot hold nested objects.
     meta = ConfigRecord({
         "tre-num"        : data["tre_num"],
         "cohort"         : data["cohort_label"],
@@ -146,7 +145,7 @@ def evaluate(msg: Message, context: Context) -> Message:
         "test-ll"     : m["log_loss_val"],
     })
 
-    # Identity + provenance in a ConfigRecord (not aggregated).
+    # Identity and provenance in a ConfigRecord (not aggregated).
     meta = ConfigRecord({
         "tre-num"        : data["tre_num"],
         "cohort"         : data["cohort_label"],
@@ -154,6 +153,6 @@ def evaluate(msg: Message, context: Context) -> Message:
         "ro-crate-present": data["crate_present"],
     })
 
-    # An evaluate reply only needs metrics — no weights to return.
+    # An evaluation reply carries metrics only; no weights are returned.
     content = RecordDict({"metrics": metrics, "meta": meta})
     return Message(content=content, reply_to=msg)

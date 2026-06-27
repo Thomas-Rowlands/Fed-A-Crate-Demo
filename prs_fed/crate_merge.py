@@ -1,32 +1,34 @@
 """
-crate_merge.py — Merge per-TRE RO-Crates into flwrCrate's run-crate.
+Merge per-TRE RO-Crates into the federated run's RO-Crate.
 
-flwrCrate emits a run-crate describing the federated computation (the
-CreateAction, strategy, frameworks, model, metrics). Separately, each TRE
-contributes its own RO-Crate describing its institute and location. This
-module folds the TRE provenance INTO the run-crate so there's a single,
-self-contained provenance record.
+The provenance-capture layer emits a run-crate describing the federated
+computation (the run action, strategy, frameworks, model, and metrics).
+Separately, each TRE contributes its own RO-Crate describing its institute and
+location. This module folds the TRE provenance into the run-crate to produce a
+single, self-contained provenance record.
 
-Design (per project decisions):
-  • Each TRE's Organization is attached to the run's CreateAction as a
-    contributor/agent.
-  • The full TRE entity set (Organization + GeoCoordinates + nested
-    PostalAddress) is embedded, so the merged crate stands alone.
+Behaviour:
+
+  * Each TRE's ``Organization`` is attached to the run's ``CreateAction`` as a
+    contributor. The full TRE entity set (Organization, GeoCoordinates, and the
+    nested PostalAddress) is embedded so the merged crate stands alone.
 
 Collision handling:
-  • TRE entities with ABSOLUTE-URI @ids (ROR org, GeoNames geo) are embedded
-    as-is. If two TREs share an institution, the identical @id naturally
-    dedupes.
-  • The TRE crate's own local packaging entities ("./" root Dataset and
-    "ro-crate-metadata.json" descriptor) are NOT carried over — they describe
+
+  * TRE entities with absolute-URI ``@id`` values (e.g. a ROR organisation or a
+    GeoNames location) are embedded as-is. When two TREs share an institution,
+    the identical ``@id`` causes them to be de-duplicated automatically.
+  * The TRE crate's own packaging entities (the ``./`` root Dataset and the
+    ``ro-crate-metadata.json`` descriptor) are not carried over: they describe
     the TRE's standalone crate, not the run, and would collide with the
-    run-crate's equivalents.
+    run-crate's own equivalents.
 
 Safety:
-  • The function never raises on bad input; it logs and returns a status dict.
-  • If the run-crate can't be found/parsed, the TRE data is left untouched on
-    disk so nothing is lost.
-  • A backup of the original run-crate is written before modification.
+
+  * The merge never raises on bad input; it logs through a returned status
+    dictionary instead.
+  * If the run-crate cannot be found or parsed, the TRE data is left untouched.
+  * The original run-crate is backed up before modification.
 """
 
 import json
@@ -35,12 +37,12 @@ import shutil
 from typing import Optional
 
 
-# Entities whose @id is one of these are TRE-crate-local packaging artefacts
-# and must not be merged into the run-crate.
+# Entities with these @id values are TRE-crate-local packaging artefacts and
+# must not be merged into the run-crate.
 _SKIP_LOCAL_IDS = {"./", "ro-crate-metadata.json"}
 
-# Candidate @ids for flwrCrate's run action. The README documents "#fl-run";
-# we try a few defensively in case the casing/prefix differs in practice.
+# Candidate @id values for the run's CreateAction. The primary value is tried
+# first; the others provide resilience to differences in crate generation.
 _RUN_ACTION_ID_CANDIDATES = ["#fl-run", "#run", "fl-run"]
 
 
@@ -49,13 +51,13 @@ def _is_absolute_uri(entity_id: str) -> bool:
 
 
 def _find_run_action(graph: list) -> Optional[dict]:
-    """Locate flwrCrate's CreateAction entity in the run-crate graph."""
-    # First, try the documented/likely @ids.
+    """Locate the run's ``CreateAction`` entity in the run-crate graph."""
+    # Try the known @id values first.
     by_id = {e.get("@id"): e for e in graph}
     for cand in _RUN_ACTION_ID_CANDIDATES:
         if cand in by_id:
             return by_id[cand]
-    # Fall back: the first CreateAction in the graph.
+    # Otherwise, fall back to the first CreateAction in the graph.
     for e in graph:
         types = e.get("@type")
         types = types if isinstance(types, list) else [types]
@@ -115,23 +117,27 @@ def merge_tre_crates_into_run_crate(
     agent_property: str = "contributor",
 ) -> dict:
     """
-    Merge each TRE's crate entities into the flwrCrate run-crate in place.
+    Merge each TRE's crate entities into the run-crate, in place.
 
     Parameters
     ----------
     run_crate_path : str
-        Path to flwrCrate's ro-crate-metadata.json (inside <output>/ro-crate/).
+        Path to the run-crate's ``ro-crate-metadata.json`` (inside
+        ``<output>/ro-crate/``).
     tre_provenance : dict
-        {tre_num: {"cohort": str, "crate_json": str, "present": bool}} —
-        i.e. strategy.provenance.
+        Maps ``tre_num`` to ``{"cohort", "crate_json", "present"}``, as
+        collected by the strategy during the run.
     agent_property : str
-        Which CreateAction property to attach the TRE orgs to. "contributor"
-        keeps them distinct from flwrCrate's own "agent" (the executor),
-        while still marking them as participating organisations.
+        The ``CreateAction`` property to which the TRE organisations are
+        attached. The default, ``"contributor"``, marks them as participating
+        organisations while keeping them distinct from the run's executor
+        (recorded separately as the action's agent).
 
     Returns
     -------
-    dict : status report (merged count, skipped, warnings, whether written).
+    dict
+        A status report containing the merged and skipped TREs, any warnings,
+        and whether the merged crate was written.
     """
     status = {
         "written"   : False,
@@ -192,7 +198,7 @@ def merge_tre_crates_into_run_crate(
                                            "reason": "no embeddable entities"})
             continue
 
-        # Embed entities, deduping by @id (shared institutions collapse).
+        # Embed entities, de-duplicating by @id so shared institutions appear once.
         for entity in tre_entities:
             eid = entity.get("@id")
             if eid in existing_ids:

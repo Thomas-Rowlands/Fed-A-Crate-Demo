@@ -1,18 +1,17 @@
 """
-strategy.py — Custom FedAvg that captures per-TRE training/evaluation history.
+A FedAvg strategy that additionally records per-TRE, per-round metrics.
 
-The built-in FedAvg gives us:
-  • Sample-weighted averaging of ArrayRecords (the model weights)
-  • Sample-weighted averaging of MetricRecords (returned aggregated metrics)
-  • All client sampling logic
+The built-in ``FedAvg`` provides sample-weighted averaging of model weights
+and metrics, along with all client-sampling logic. It retains only the
+*aggregated* metrics for each round, not the per-client breakdown.
 
-What we add by subclassing:
-  • Per-TRE-per-round history tracking (the default FedAvg only keeps the
-    AGGREGATED MetricRecord, not the per-client breakdown we want to write
-    to training_history.json).
+``HistoryFedAvg`` overrides the two aggregation hooks to capture each TRE's
+training and evaluation metrics (and its provenance crate) before delegating
+the actual aggregation to the base class. The captured history is written to
+``training_history.json`` and the provenance is merged into the run-crate.
 
-If you don't need per-TRE history, drop this file entirely and instantiate
-`flwr.serverapp.strategy.FedAvg(...)` directly in server_app.py.
+If per-TRE history is not required, this subclass can be removed and
+``flwr.serverapp.strategy.FedAvg`` used directly.
 """
 
 from flwr.app              import Message, MetricRecord
@@ -24,29 +23,26 @@ class HistoryFedAvg(FedAvg):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # These are internal bookkeeping, NOT hyperparameters. They're stored
-        # with a leading underscore so flwrCrate's strategy-attribute capture
-        # (which records public attributes as hyperparameters) skips them —
-        # otherwise they'd appear in the run-crate as empty/meaningless
-        # "#strategy-param-*" entries captured at construction time.
-        # Accessed via public properties below for readability in server_app.
+        # These attributes hold internal run state, not strategy
+        # hyperparameters. They are prefixed with an underscore deliberately:
+        # the provenance-capture layer records a strategy's public attributes
+        # as hyperparameters by iterating dir(strategy) and skipping names that
+        # begin with "_". Keeping these private prevents them from appearing in
+        # the run-crate as spurious, empty hyperparameter entries.
+        #
+        # For the same reason, no public property accessors are provided; the
+        # server reads these as ``strategy._per_tre_history`` and
+        # ``strategy._provenance``.
         self._per_tre_history: dict[str, dict[int, dict]] = {
             "train": {},
             "evaluate": {},
         }
-        # tre_num -> {"cohort": str, "crate_json": str, "present": bool}
-        # The crate is identical every round; we keep the latest seen per TRE.
+        # Maps tre_num -> {"cohort": str, "crate_json": str, "present": bool}.
+        # The crate is identical every round; the latest seen value is kept.
         self._provenance: dict[int, dict] = {}
 
-    # NOTE: deliberately NO public @property accessors for these two.
-    # flwrCrate's strategy-attribute capture iterates dir(strategy) and skips
-    # only names starting with "_". A public property (e.g. `provenance`)
-    # would show up in dir() and be captured as a bogus hyperparameter, which
-    # is exactly what we're avoiding. Read them as `strategy._provenance` /
-    # `strategy._per_tre_history` from server_app instead.
-
     def _capture_provenance(self, meta, tre_num: int, cohort: str) -> None:
-        """Stash a TRE's RO-Crate string from its reply's meta ConfigRecord."""
+        """Record a TRE's RO-Crate from the ``meta`` ConfigRecord of its reply."""
         if meta is None:
             return
         crate_json = str(meta.get("ro-crate", ""))
@@ -57,20 +53,17 @@ class HistoryFedAvg(FedAvg):
             "present"   : present,
         }
 
-    # ── Capture per-TRE training metrics ─────────────────────────────────────
-    # We override aggregate_train to peek at the replies before/after the
-    # built-in FedAvg aggregation runs.
     def aggregate_train(self, server_round, replies):
         per_tre = {}
         for r in replies:
             if r.has_error():
                 continue
             mr   = r.content.get("metrics")
-            meta = r.content.get("meta")        # ConfigRecord with identity
+            meta = r.content.get("meta")        # ConfigRecord carrying identity
             if mr is None:
                 continue
-            # tre-num / cohort live in the non-aggregated ConfigRecord, not
-            # in the MetricRecord (which FedAvg sample-weight-averages).
+            # Identity (TRE number, cohort) is read from the non-aggregated
+            # ConfigRecord rather than the MetricRecord, which FedAvg averages.
             tre_num = int(meta["tre-num"]) if meta is not None else 0
             cohort  = str(meta["cohort"])  if meta is not None else "?"
             self._capture_provenance(meta, tre_num, cohort)
@@ -83,11 +76,9 @@ class HistoryFedAvg(FedAvg):
             }
         self._per_tre_history["train"][server_round] = per_tre
 
-        # Delegate the actual aggregation (weight averaging + metric averaging)
-        # to the parent FedAvg implementation.
+        # Delegate weight and metric aggregation to the base implementation.
         return super().aggregate_train(server_round, replies)
 
-    # ── Capture per-TRE evaluation metrics ────────────────────────────────────
     def aggregate_evaluate(self, server_round, replies):
         per_tre = {}
         for r in replies:

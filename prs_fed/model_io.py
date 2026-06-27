@@ -1,14 +1,15 @@
 """
-model_io.py — Save the final aggregated model to disk.
+Persistence of the final aggregated model and training history.
 
-Called by server_app.py once `strategy.start()` returns. Writes:
-  • prs_global_model.pkl     — sklearn SGDClassifier, ready for predict_proba
-  • prs_global_weights.npz   — raw numpy coef + intercept
-  • training_history.json    — per-TRE metrics for every round
+Called once the federation completes, this module writes:
 
-NOTE: Provenance (RO-Crate) output is no longer written here. It's owned
-entirely by flwrCrate, whose run-crate has the per-TRE provenance merged into
-it by prs_fed/crate_merge.py.
+  * ``prs_global_model.pkl``    — the trained scikit-learn model, ready for
+    ``predict_proba``
+  * ``prs_global_weights.npz``  — the raw coefficient and intercept arrays
+  * ``training_history.json``   — per-round, per-TRE metrics and run metadata
+
+Provenance (the RO-Crate) is handled separately by the provenance-capture
+layer and ``crate_merge``; it is not written here.
 """
 
 import json
@@ -33,12 +34,12 @@ def save_final_artifacts(
     os.makedirs(results_dir, exist_ok=True)
     paths: dict[str, str] = {}
 
-    # Raw numpy weights (framework-agnostic — load with `np.load`)
+    # Raw NumPy weights (framework-agnostic; load with numpy.load).
     npz_path = os.path.join(results_dir, "prs_global_weights.npz")
     np.savez(npz_path, coef=coef, intercept=intercept)
     paths["weights"] = npz_path
 
-    # Pickled sklearn model (predict_proba-ready)
+    # Pickled scikit-learn model, ready for predict_proba.
     model = create_model()
     set_parameters(model, [coef, intercept])
     pkl_path = os.path.join(results_dir, "prs_global_model.pkl")
@@ -46,7 +47,7 @@ def save_final_artifacts(
         pickle.dump(model, f)
     paths["model"] = pkl_path
 
-    # JSON history + metadata
+    # History and run metadata.
     meta = {
         "saved_at"       : datetime.now(timezone.utc).isoformat(),
         "model_type"     : "SGDClassifier (logistic regression, balanced)",

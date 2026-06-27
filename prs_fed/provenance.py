@@ -1,15 +1,17 @@
 """
-provenance.py — RO-Crate loading, validation, and summarisation.
+RO-Crate loading, validation, and summarisation.
 
-Each TRE ships an RO-Crate (ro-crate-metadata.json) describing its institute,
-location, and organisational provenance. The ClientApp loads it at a fixed
-path, validates the basic structure, and sends it verbatim to the server.
+Each TRE ships an RO-Crate (``ro-crate-metadata.json``) describing its
+institute, location, and organisational provenance. The client loads this
+crate from a fixed path, validates its basic structure, and sends it verbatim
+to the server, where it is folded into the run's provenance record.
 
-This module is deliberately self-contained (no Flower imports) so it can be
-unit-tested in isolation and reused by both the client and the server.
+This module has no Flower dependency so it can be tested in isolation and
+reused by both the client and the server.
 
-The RO-Crate is a JSON-LD document: a flat `@graph` list of entities, each
-with an `@id`, cross-referenced by id. We navigate it by indexing on `@id`.
+An RO-Crate is a JSON-LD document: a flat ``@graph`` list of entities, each
+identified by ``@id`` and cross-referenced by that identifier. Navigation is
+performed by indexing the graph on ``@id`` and following references.
 """
 
 import json
@@ -24,11 +26,12 @@ CRATE_FIXED_PATH = "/provenance/ro-crate-metadata.json"
 
 def load_crate(path: str = CRATE_FIXED_PATH) -> Optional[dict]:
     """
-    Load and parse the RO-Crate at `path`.
+    Load and parse the RO-Crate at ``path``.
 
-    Returns the parsed dict, or None if the file is missing or unparseable.
-    Never raises — provenance is best-effort, the federation must run either
-    way (per the design decision: warn and continue with empty provenance).
+    Returns the parsed dictionary, or ``None`` if the file is missing or
+    cannot be parsed. This function never raises: provenance capture is
+    best-effort, and a missing or malformed crate must not prevent the
+    federation from running.
     """
     if not os.path.exists(path):
         print(f"  [provenance] No RO-Crate found at {path}; "
@@ -56,11 +59,12 @@ def load_crate(path: str = CRATE_FIXED_PATH) -> Optional[dict]:
 
 def validate_crate(crate: Any) -> tuple[bool, str]:
     """
-    Cheap structural check that this looks like an RO-Crate. We don't do full
-    JSON-LD validation — just enough to catch a hand-authoring mistake before
-    it's sent to the server.
+    Perform a lightweight structural check that ``crate`` looks like an
+    RO-Crate. This is not full JSON-LD validation; it is enough to catch a
+    hand-authoring mistake before the crate is sent to the server.
 
-    Returns (is_valid, reason_if_not).
+    Returns a ``(is_valid, reason)`` tuple, where ``reason`` is an empty
+    string when the crate is valid.
     """
     if not isinstance(crate, dict):
         return False, "top level is not a JSON object"
@@ -69,12 +73,12 @@ def validate_crate(crate: Any) -> tuple[bool, str]:
     if "@graph" not in crate or not isinstance(crate["@graph"], list):
         return False, "missing or non-list @graph"
 
-    # Every entity needs an @id (the cross-reference key).
+    # Every entity must carry an @id (the cross-reference key).
     for i, entity in enumerate(crate["@graph"]):
         if not isinstance(entity, dict) or "@id" not in entity:
             return False, f"@graph entity {i} has no @id"
 
-    # A well-formed crate has the metadata descriptor entity.
+    # A well-formed crate includes the metadata descriptor entity.
     ids = {e["@id"] for e in crate["@graph"]}
     if "ro-crate-metadata.json" not in ids:
         return False, "no ro-crate-metadata.json descriptor entity"
@@ -97,14 +101,15 @@ def _resolve(by_id: dict, ref: Any) -> Optional[dict]:
 
 def summarise_crate(crate: Optional[dict]) -> dict:
     """
-    Pull the human-relevant fields into a flat dict for quick display in the
-    results JSON, so a reader doesn't have to parse JSON-LD to see who a TRE is.
+    Extract the human-relevant provenance fields into a flat dictionary, so a
+    reader does not have to parse JSON-LD to identify a TRE.
 
-    Designed around the expected structure:
+    The extraction follows the expected crate structure::
+
         Root (./) --about--> Organization --location--> GeoCoordinates --address--> PostalAddress
 
-    Every field is optional; missing pieces just come back as None. Returns an
-    empty-ish summary (all None) if the crate is None.
+    Every field is optional; missing pieces are returned as ``None``. If
+    ``crate`` is ``None``, all fields are ``None``.
     """
     summary = {
         "institute_name": None,
@@ -139,7 +144,7 @@ def summarise_crate(crate: Optional[dict]) -> dict:
     if org is not None:
         summary["institute_name"] = org.get("name")
         summary["institute_url"]  = org.get("url")
-        # The ROR identifier is the org's @id when it's a ror.org URI.
+        # The ROR identifier is the organisation's @id when it is a ror.org URI.
         org_id = org.get("@id", "")
         if "ror.org" in org_id:
             summary["institute_ror"] = org_id
