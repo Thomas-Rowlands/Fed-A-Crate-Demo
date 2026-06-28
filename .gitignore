@@ -208,6 +208,5 @@ __marimo__/
 
 # Project-specific ignore patterns
 # Add any additional patterns specific to your project below this line
-data/
 results/
 flwrCrate/
