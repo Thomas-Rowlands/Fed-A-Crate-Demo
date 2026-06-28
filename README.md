@@ -133,7 +133,7 @@ different model.
 
 - Docker + Docker Compose
 - The `flwr` CLI on your host: `pip install "flwr>=1.29"`
-- Three cohort CSVs (see [Data format](#data-format)) placed in `data/`
+- Three cohort CSVs (see [Data format](#data-format)) placed in `data/`, synthetic data files have been made available for this demo through git lfs. If you have git lfs installed (`git lfs install`) first, data files will be pulled automatically, but alternatively you can install git lfs after cloning and simply run `git lfs pull` within the cloned repository.
 - The `flwrcrate` provenance module at `prs_fed/flwrcrate/` (bundled)
 
 ### Run
