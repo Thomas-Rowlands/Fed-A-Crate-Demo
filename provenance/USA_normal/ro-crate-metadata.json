@@ -5,9 +5,9 @@
             "@id": "./",
             "@type": "Dataset",
             "about": {
-                "@id": "https://ror.org/01ee9ar58"
+                "@id": "https://ror.org/01ee9ar58#tre-normal"
             },
-            "datePublished": "2026-06-22T08:51:25+00:00"
+            "datePublished": "2026-06-28T17:50:10+00:00"
         },
         {
             "@id": "ro-crate-metadata.json",
@@ -42,6 +42,41 @@
             },
             "name": "University of Nottingham",
             "url": "https://www.nottingham.ac.uk"
+        },
+        {
+            "@id": "https://orcid.org/0000-0002-7912-4203",
+            "@type": "Person",
+            "affiliation": {
+                "@id": "https://ror.org/01ee9ar58"
+            },
+            "name": "Thomas Rowlands"
+        },
+        {
+            "@id": "https://orcid.org/0000-0002-0292-7972",
+            "@type": "Person",
+            "affiliation": {
+                "@id": "https://ror.org/01ee9ar58"
+            },
+            "name": "Tim Beck"
+        },
+        {
+            "@id": "https://ror.org/01ee9ar58#tre-normal",
+            "@type": "Organization",
+            "location": {
+                "@id": "https://www.geonames.org/10858713/university-of-nottingham.html"
+            },
+            "member": [
+                {
+                    "@id": "https://orcid.org/0000-0002-7912-4203"
+                },
+                {
+                    "@id": "https://orcid.org/0000-0002-0292-7972"
+                }
+            ],
+            "name": "University of Nottingham — Reference Cohort TRE",
+            "parentOrganization": {
+                "@id": "https://ror.org/01ee9ar58"
+            }
         }
     ]
 }

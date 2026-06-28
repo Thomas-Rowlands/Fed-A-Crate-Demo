@@ -1,0 +1,119 @@
+"""
+generate_tre_crates.py — Generate per-TRE RO-Crate provenance metadata.
+
+Produces one ``ro-crate-metadata.json`` per TRE, each describing the
+contributing institution, its location, and the people involved.
+"""
+
+from pathlib import Path
+
+from rocrate.rocrate import ROCrate
+from rocrate.model.contextentity import ContextEntity
+from rocrate.model.person import Person
+
+
+# ── Parent institution (shared across all TREs) ──────────────────────────────
+
+PARENT_ROR   = "https://ror.org/01ee9ar58"
+PARENT_NAME  = "University of Nottingham"
+PARENT_URL   = "https://www.nottingham.ac.uk"
+
+GEO_ID = "https://www.geonames.org/10858713/university-of-nottingham.html"
+GEO_PROPERTIES = {
+    "@type": "https://schema.org/GeoCoordinates",
+    "latitude": "52.941686822260635",
+    "longitude": "-1.1871061808863315",
+    "address": {
+        "@id": GEO_ID,
+        "@type": "https://schema.org/PostalAddress",
+        "addressLocality": "University Park, Nottingham",
+        "addressRegion": "Nottinghamshire",
+        "addressCountry": "UK",
+        "streetAddress": "Biodiscovery Institute",
+        "postalCode": "NG7 2RD",
+    },
+}
+
+# ── People (shared across all TREs; ORCID as @id where available) ─────────────
+
+PEOPLE = [
+    {"id": "https://orcid.org/0000-0002-7912-4203", "name": "Thomas Rowlands"},
+    # Replace this @id with Tim Beck's real ORCID. If he does not have one, a
+    # stable local identifier such as "#person-tim-beck" is also valid.
+    {"id": "https://orcid.org/0000-0002-0292-7972", "name": "Tim Beck"},
+]
+
+# ── Per-TRE definitions ───────────────────────────────────────────────────────
+# Each TRE becomes a distinct sub-organisation. The sub-org @id is what makes
+# the three records distinct in the merged crate. Here the @id is derived from
+# the parent ROR with a fragment suffix, which keeps the link to the real
+# institution explicit while remaining unique per TRE.
+
+TRES = [
+    {"key": "USA_young",  "suborg_suffix": "tre-young",
+     "suborg_name": "University of Nottingham — Young Cohort TRE"},
+    {"key": "USA_old",    "suborg_suffix": "tre-old",
+     "suborg_name": "University of Nottingham — Older Cohort TRE"},
+    {"key": "USA_normal", "suborg_suffix": "tre-normal",
+     "suborg_name": "University of Nottingham — Reference Cohort TRE"},
+]
+
+OUTPUT_ROOT = Path("provenance")
+
+
+def build_crate(tre: dict) -> ROCrate:
+    """Build the RO-Crate for a single TRE."""
+    crate = ROCrate()
+
+    # Shared geo + parent institution
+    geo = ContextEntity(crate, identifier=GEO_ID, properties=GEO_PROPERTIES)
+    crate.add(geo)
+
+    parent = ContextEntity(crate, identifier=PARENT_ROR, properties={
+        "@type": "Organization",
+        "name": PARENT_NAME,
+        "url": PARENT_URL,
+        "location": geo,
+    })
+    crate.add(parent)
+
+    # People
+    people = []
+    for p in PEOPLE:
+        person = Person(crate, p["id"], properties={
+            "name": p["name"],
+            "affiliation": parent,
+        })
+        crate.add(person)
+        people.append(person)
+
+    # Distinct sub-organisation for this TRE
+    suborg_id = f"{PARENT_ROR}#{tre['suborg_suffix']}"
+    suborg = ContextEntity(crate, identifier=suborg_id, properties={
+        "@type": "Organization",
+        "name": tre["suborg_name"],
+        "parentOrganization": parent,
+        "location": geo,
+        "member": people,
+    })
+    crate.add(suborg)
+
+    # The root dataset is "about" this TRE's sub-organisation, so the
+    # summariser (root -> about -> Organization) resolves to the distinct
+    # sub-org rather than the shared parent.
+    crate.root_dataset["about"] = suborg
+
+    return crate
+
+
+def main():
+    for tre in TRES:
+        crate = build_crate(tre)
+        out_dir = OUTPUT_ROOT / tre["key"]
+        out_dir.mkdir(parents=True, exist_ok=True)
+        crate.write(out_dir)
+        print(f"Wrote {out_dir / 'ro-crate-metadata.json'}")
+
+
+if __name__ == "__main__":
+    main()
