@@ -98,7 +98,7 @@ def build_crate(tre: dict) -> ROCrate:
     })
     crate.add(suborg)
 
-    # The root dataset is "about" this TRE's sub-organisation, so the
+    # The root dataset is "about" this node's sub-organisation, so the
     # summariser (root -> about -> Organization) resolves to the distinct
     # sub-org rather than the shared parent.
     crate.root_dataset["about"] = suborg

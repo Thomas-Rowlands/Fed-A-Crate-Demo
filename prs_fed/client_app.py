@@ -7,9 +7,9 @@ functions rather than subclassing a client base class. The ``@app.train`` and
 
   1. Reads the global model weights from ``msg.content["arrays"]``.
   2. Reads per-round configuration from ``msg.content["config"]``.
-  3. Performs local training or evaluation on this TRE's private cohort.
+  3. Performs local training or evaluation on this node's private cohort.
   4. Returns a reply ``Message`` containing the updated weights (training
-     only), a ``MetricRecord``, and a ``ConfigRecord`` carrying this TRE's
+     only), a ``MetricRecord``, and a ``ConfigRecord`` carrying this node's
      identity and provenance.
 
 ``Context.node_config`` carries the configuration passed to this SuperNode at
@@ -37,18 +37,18 @@ _local_data: dict | None = None
 
 
 def _get_local_data(context: Context) -> dict:
-    """Load (and cache) this TRE's cohort. Triggered on first call."""
+    """Load (and cache) this node's cohort. Triggered on first call."""
     global _local_data
     if _local_data is not None:
         return _local_data
 
     csv_path     = str(context.node_config.get("cohort-csv", "/data/cohort.csv"))
     cohort_label = str(context.node_config.get("cohort-label", "cohort"))
-    tre_num      = int(context.node_config.get("tre-num", 0))
+    node_num      = int(context.node_config.get("tre-num", 0))
 
     X_train, X_test, y_train, y_test, _scaler, meta = load_local_cohort(csv_path)
 
-    # Load this TRE's RO-Crate once, from the fixed path. Returns None (with a
+    # Load this node's RO-Crate once, from the fixed path. Returns None (with a
     # warning) if the crate is missing or malformed, in which case the
     # federation proceeds with empty provenance. The serialised string is
     # cached so it need not be re-serialised on every round.
@@ -61,7 +61,7 @@ def _get_local_data(context: Context) -> dict:
         y_train      = y_train,
         y_test       = y_test,
         cohort_label = cohort_label,
-        tre_num      = tre_num,
+        node_num      = node_num,
         meta         = meta,
         crate_json   = crate_json,
         crate_present= crate is not None,
@@ -111,7 +111,7 @@ def train(msg: Message, context: Context) -> Message:
     # aggregate. The RO-Crate is sent verbatim as a JSON string, since a
     # ConfigRecord cannot hold nested objects.
     meta = ConfigRecord({
-        "tre-num"        : data["tre_num"],
+        "tre-num"        : data["node_num"],
         "cohort"         : data["cohort_label"],
         "ro-crate"       : data["crate_json"],
         "ro-crate-present": data["crate_present"],
@@ -123,7 +123,7 @@ def train(msg: Message, context: Context) -> Message:
 
 @app.evaluate()
 def evaluate(msg: Message, context: Context) -> Message:
-    """Local evaluation step. Score the global model on this TRE's test set."""
+    """Local evaluation step. Score the global model on this node's test set."""
     data      = _get_local_data(context)
     threshold = float(msg.content["config"].get("threshold", 0.5))
 
@@ -147,7 +147,7 @@ def evaluate(msg: Message, context: Context) -> Message:
 
     # Identity and provenance in a ConfigRecord (not aggregated).
     meta = ConfigRecord({
-        "tre-num"        : data["tre_num"],
+        "tre-num"        : data["node_num"],
         "cohort"         : data["cohort_label"],
         "ro-crate"       : data["crate_json"],
         "ro-crate-present": data["crate_present"],

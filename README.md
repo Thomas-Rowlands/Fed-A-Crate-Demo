@@ -183,7 +183,7 @@ flwr run . local-deployment --stream \
 
 ## Data format
 
-Each TRE's CSV holds one row per patient with:
+Each node's CSV holds one row per patient with:
 
 - **313 SNP dosage columns** — any column whose name contains `:` is treated as
   a SNP feature (dosage 0/1/2). Adjust `n-features` if your panel differs.
@@ -192,7 +192,7 @@ Each TRE's CSV holds one row per patient with:
 
 Place the three CSVs in `data/` and reference them in `compose.yml` (already
 wired for `USA_young.csv`, `USA_old.csv`, `USA_normal.csv`). Each is mounted
-read-only into only its own TRE's container.
+read-only into only its own node's container.
 
 > The demonstration cohorts are deliberately **age-imbalanced** across nodes to
 > show that federation produces a balanced global model even when no single
@@ -210,7 +210,7 @@ mounted into its container at a fixed path. A minimal crate is a flat JSON-LD
 ROR id as its `@id`), whose `location` points to a `GeoCoordinates` entity with
 a nested `PostalAddress`. See the bundled examples for the exact shape.
 
-If a TRE's crate is missing or malformed, that node is logged and **the
+If a node's crate is missing or malformed, that node is logged and **the
 federation still runs** — provenance is best-effort, never a hard dependency.
 
 > **Docker bind-mount caveat.** Each crate file must exist on the host *before*
@@ -253,7 +253,7 @@ built-in strategy in `prs_fed/server_app.py`.
 
 **To change the number of nodes:** add or remove `supernode-N` / `clientapp-N`
 service pairs in `compose.yml`, update `min_train_nodes` (and the related
-minimums) in `server_app.py`, and provide each new TRE's CSV and crate.
+minimums) in `server_app.py`, and provide each new node's CSV and crate.
 
 **To add provenance to a different Flower app:** the `flwrcrate` integration is
 three touchpoints in your ServerApp — a context manager around
@@ -312,7 +312,7 @@ and reusable: give it a run-crate path and a dict of per-source crates.
 - **`supernode-1..3`** — one persistent supervisor per TRE; connects out to the
   SuperLink.
 - **`clientapp-1..3`** — one executor per TRE; runs the actual training. Only
-  these mount the TRE's CSV and crate.
+  these mount the node's CSV and crate.
 
 The SuperNode/ClientApp split is Flower's process-isolation model: the
 SuperNode stays alive across rounds while ClientApp processes are short-lived.

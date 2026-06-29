@@ -155,13 +155,13 @@ def main(grid: Grid, context: Context) -> None:
         print(f"  [flwrcrate] RO-Crate written to {crate_out}/ro-crate/")
 
         # ── Merge per-node provenance into the run-crate ──────────────────────
-        # Fold each TRE's RO-Crate (institute and location) into the run-crate
+        # Fold each node's RO-Crate (institute and location) into the run-crate
         # as contributor organisations on the run action, producing a single
         # self-contained provenance record.
         run_crate_path = os.path.join(crate_out, "ro-crate", "ro-crate-metadata.json")
         merge_status = merge_node_crates_into_run_crate(
             run_crate_path = run_crate_path,
-            tre_provenance = strategy._provenance,
+            node_provenance = strategy._provenance,
         )
         if merge_status["written"]:
             merged = [t["cohort"] for t in merge_status["merged_nodes"]]

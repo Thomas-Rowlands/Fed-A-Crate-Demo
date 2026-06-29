@@ -10,7 +10,7 @@
       "conformsTo": {
         "@id": "https://esciencelab.org.uk/federated-learning-ro-crate-profile/federated-learning-profile.html"
       },
-      "datePublished": "2026-06-29T15:53:23+00:00",
+      "datePublished": "2026-06-29T16:18:32+00:00",
       "description": "RO-Crate describing a federated learning run captured with flwrCrate.",
       "hasPart": [
         {
@@ -25,7 +25,7 @@
           "@id": "#fl-run"
         }
       ],
-      "name": "Federated PRS case/control classification across 3 TREs"
+      "name": "Federated PRS case/control classification across 3 nodes"
     },
     {
       "@id": "ro-crate-metadata.json",
@@ -326,7 +326,7 @@
         "@id": "https://orcid.org/0000-0002-7912-4203"
       },
       "description": "Run using strategy HistoryFedAvg (prs_fed.strategy), 10 rounds.",
-      "endTime": "2026-06-29T15:53:23.833566+00:00",
+      "endTime": "2026-06-29T16:18:32.596617+00:00",
       "instrument": [
         {
           "@id": "#flower"
@@ -379,7 +379,7 @@
           "@id": "metrics_log.json"
         }
       ],
-      "startTime": "2026-06-29T15:51:20.499692+00:00",
+      "startTime": "2026-06-29T16:16:23.246544+00:00",
       "contributor": {
         "@id": "https://ror.org/01ee9ar58"
       }
@@ -417,25 +417,6 @@
       "name": "Tim Beck"
     },
     {
-      "@id": "https://ror.org/01ee9ar58#tre-young",
-      "@type": "Organization",
-      "location": {
-        "@id": "https://www.geonames.org/10858713/university-of-nottingham.html"
-      },
-      "member": [
-        {
-          "@id": "https://orcid.org/0000-0002-7912-4203"
-        },
-        {
-          "@id": "https://orcid.org/0000-0002-0292-7972"
-        }
-      ],
-      "name": "University of Nottingham \u2014 Young Cohort TRE",
-      "parentOrganization": {
-        "@id": "https://ror.org/01ee9ar58"
-      }
-    },
-    {
       "@id": "https://ror.org/01ee9ar58#tre-old",
       "@type": "Organization",
       "location": {
@@ -450,25 +431,6 @@
         }
       ],
       "name": "University of Nottingham \u2014 Older Cohort TRE",
-      "parentOrganization": {
-        "@id": "https://ror.org/01ee9ar58"
-      }
-    },
-    {
-      "@id": "https://ror.org/01ee9ar58#tre-normal",
-      "@type": "Organization",
-      "location": {
-        "@id": "https://www.geonames.org/10858713/university-of-nottingham.html"
-      },
-      "member": [
-        {
-          "@id": "https://orcid.org/0000-0002-7912-4203"
-        },
-        {
-          "@id": "https://orcid.org/0000-0002-0292-7972"
-        }
-      ],
-      "name": "University of Nottingham \u2014 Reference Cohort TRE",
       "parentOrganization": {
         "@id": "https://ror.org/01ee9ar58"
       }

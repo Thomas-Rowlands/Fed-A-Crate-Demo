@@ -9,7 +9,7 @@ single, self-contained provenance record.
 
 Behaviour:
 
-  * Each TRE's ``Organization`` is attached to the run's ``CreateAction`` as a
+  * Each node's ``Organization`` is attached to the run's ``CreateAction`` as a
     contributor. The full node entity set (Organization, GeoCoordinates, and the
     nested PostalAddress) is embedded so the merged crate stands alone.
 
@@ -20,7 +20,7 @@ Collision handling:
     the identical ``@id`` causes them to be de-duplicated automatically.
   * The node crate's own packaging entities (the ``./`` root Dataset and the
     ``ro-crate-metadata.json`` descriptor) are not carried over: they describe
-    the TRE's standalone crate, not the run, and would collide with the
+    the node's standalone crate, not the run, and would collide with the
     run-crate's own equivalents.
 
 Safety:
@@ -84,9 +84,9 @@ def _extract_node_entities(crate: dict) -> list:
     return out
 
 
-def _find_org_id(tre_entities: list) -> Optional[str]:
+def _find_org_id(node_entities: list) -> Optional[str]:
     """Return the @id of the Organization entity among the extracted set."""
-    for e in tre_entities:
+    for e in node_entities:
         types = e.get("@type")
         types = types if isinstance(types, list) else [types]
         if "Organization" in types:
@@ -113,19 +113,19 @@ def _append_ref(action: dict, prop: str, ref_id: str) -> None:
 
 def merge_node_crates_into_run_crate(
     run_crate_path: str,
-    tre_provenance: dict,
+    node_provenance: dict,
     agent_property: str = "contributor",
 ) -> dict:
     """
-    Merge each TRE's crate entities into the run-crate, in place.
+    Merge each node's crate entities into the run-crate, in place.
 
     Parameters
     ----------
     run_crate_path : str
         Path to the run-crate's ``ro-crate-metadata.json`` (inside
         ``<output>/ro-crate/``).
-    tre_provenance : dict
-        Maps ``tre_num`` to ``{"cohort", "crate_json", "present"}``, as
+    node_provenance : dict
+        Maps ``node_num`` to ``{"cohort", "crate_json", "present"}``, as
         collected by the strategy during the run.
     agent_property : str
         The ``CreateAction`` property to which the node organisations are
@@ -175,43 +175,43 @@ def merge_node_crates_into_run_crate(
     existing_ids = {e.get("@id") for e in graph}
 
     # 3. Process each TRE.
-    for tre_num in sorted(tre_provenance.keys()):
-        info       = tre_provenance[tre_num]
-        cohort     = info.get("cohort", f"tre{tre_num}")
+    for node_num in sorted(node_provenance.keys()):
+        info       = node_provenance[node_num]
+        cohort     = info.get("cohort", f"tre{node_num}")
         present    = info.get("present", False)
         crate_json = info.get("crate_json", "")
 
         if not present or not crate_json:
-            status["skipped_nodes"].append({"tre_num": tre_num, "cohort": cohort,
+            status["skipped_nodes"].append({"node_num": node_num, "cohort": cohort,
                                             "reason": "no crate"})
             continue
         try:
-            tre_crate = json.loads(crate_json)
+            node_crate = json.loads(crate_json)
         except json.JSONDecodeError:
-            status["skipped_nodes"].append({"tre_num": tre_num, "cohort": cohort,
+            status["skipped_nodes"].append({"node_num": node_num, "cohort": cohort,
                                            "reason": "malformed crate JSON"})
             continue
 
-        tre_entities = _extract_node_entities(tre_crate)
-        if not tre_entities:
-            status["skipped_nodes"].append({"tre_num": tre_num, "cohort": cohort,
+        node_entities = _extract_node_entities(node_crate)
+        if not node_entities:
+            status["skipped_nodes"].append({"node_num": node_num, "cohort": cohort,
                                            "reason": "no embeddable entities"})
             continue
 
         # Embed entities, de-duplicating by @id so shared institutions appear once.
-        for entity in tre_entities:
+        for entity in node_entities:
             eid = entity.get("@id")
             if eid in existing_ids:
                 continue
             graph.append(entity)
             existing_ids.add(eid)
 
-        # Link the TRE's Organization to the run action.
-        org_id = _find_org_id(tre_entities)
+        # Link the node's Organization to the run action.
+        org_id = _find_org_id(node_entities)
         if org_id and action is not None:
             _append_ref(action, agent_property, org_id)
 
-        status["merged_nodes"].append({"tre_num": tre_num, "cohort": cohort,
+        status["merged_nodes"].append({"node_num": node_num, "cohort": cohort,
                                       "org_id": org_id})
 
     try:

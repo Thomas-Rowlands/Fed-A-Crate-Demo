@@ -5,7 +5,7 @@ The built-in ``FedAvg`` provides sample-weighted averaging of model weights
 and metrics, along with all client-sampling logic. It retains only the
 *aggregated* metrics for each round, not the per-client breakdown.
 
-``HistoryFedAvg`` overrides the two aggregation hooks to capture each TRE's
+``HistoryFedAvg`` overrides the two aggregation hooks to capture each node's
 training and evaluation metrics (and its provenance crate) before delegating
 the actual aggregation to the base class. The captured history is written to
 ``training_history.json`` and the provenance is merged into the run-crate.
@@ -37,17 +37,17 @@ class HistoryFedAvg(FedAvg):
             "train": {},
             "evaluate": {},
         }
-        # Maps tre_num -> {"cohort": str, "crate_json": str, "present": bool}.
+        # Maps node_num -> {"cohort": str, "crate_json": str, "present": bool}.
         # The crate is identical every round; the latest seen value is kept.
         self._provenance: dict[int, dict] = {}
 
-    def _capture_provenance(self, meta, tre_num: int, cohort: str) -> None:
-        """Record a TRE's RO-Crate from the ``meta`` ConfigRecord of its reply."""
+    def _capture_provenance(self, meta, node_num: int, cohort: str) -> None:
+        """Record a node's RO-Crate from the ``meta`` ConfigRecord of its reply."""
         if meta is None:
             return
         crate_json = str(meta.get("ro-crate", ""))
         present    = bool(meta.get("ro-crate-present", False))
-        self._provenance[tre_num] = {
+        self._provenance[node_num] = {
             "cohort"    : cohort,
             "crate_json": crate_json,
             "present"   : present,
@@ -64,10 +64,10 @@ class HistoryFedAvg(FedAvg):
                 continue
             # Identity (node number, cohort) is read from the non-aggregated
             # ConfigRecord rather than the MetricRecord, which FedAvg averages.
-            tre_num = int(meta["tre-num"]) if meta is not None else 0
+            node_num = int(meta["tre-num"]) if meta is not None else 0
             cohort  = str(meta["cohort"])  if meta is not None else "?"
-            self._capture_provenance(meta, tre_num, cohort)
-            per_node[tre_num] = {
+            self._capture_provenance(meta, node_num, cohort)
+            per_node[node_num] = {
                 "cohort"      : cohort,
                 "train-auc"   : float(mr.get("train-auc",  float("nan"))),
                 "train-f1"    : float(mr.get("train-f1",   float("nan"))),
@@ -88,10 +88,10 @@ class HistoryFedAvg(FedAvg):
             meta = r.content.get("meta")
             if mr is None:
                 continue
-            tre_num = int(meta["tre-num"]) if meta is not None else 0
+            node_num = int(meta["tre-num"]) if meta is not None else 0
             cohort  = str(meta["cohort"])  if meta is not None else "?"
-            self._capture_provenance(meta, tre_num, cohort)
-            per_node[tre_num] = {
+            self._capture_provenance(meta, node_num, cohort)
+            per_node[node_num] = {
                 "cohort"      : cohort,
                 "test-auc"    : float(mr.get("test-auc",  float("nan"))),
                 "test-acc"    : float(mr.get("test-acc",  float("nan"))),

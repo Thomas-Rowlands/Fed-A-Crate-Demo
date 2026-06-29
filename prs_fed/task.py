@@ -79,7 +79,7 @@ def get_snp_columns(df: pd.DataFrame) -> list[str]:
 
 def load_local_cohort(csv_path: str, test_size: float = 0.2):
     """
-    Load a single TRE's cohort CSV. Standardisation is fit on local
+    Load a single node's cohort CSV. Standardisation is fit on local
     training data only; the scaler's parameters never leave this process.
     """
     df       = pd.read_csv(csv_path)
