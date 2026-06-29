@@ -214,13 +214,6 @@ def merge_tre_crates_into_run_crate(
         status["merged_tres"].append({"tre_num": tre_num, "cohort": cohort,
                                       "org_id": org_id})
 
-    # 4. Back up the original, then write the merged crate.
-    try:
-        shutil.copy2(run_crate_path, run_crate_path + ".pre-merge.bak")
-    except OSError as e:
-        status["warnings"].append(
-            f"could not write backup ({e.__class__.__name__}); proceeding.")
-
     try:
         with open(run_crate_path, "w", encoding="utf-8") as f:
             json.dump(run_crate, f, indent=2)

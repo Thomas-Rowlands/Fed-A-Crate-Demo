@@ -47,18 +47,4 @@ def save_final_artifacts(
         pickle.dump(model, f)
     paths["model"] = pkl_path
 
-    # History and run metadata.
-    meta = {
-        "saved_at"       : datetime.now(timezone.utc).isoformat(),
-        "model_type"     : "SGDClassifier (logistic regression, balanced)",
-        "n_features"     : int(n_features),
-        "n_rounds"       : int(n_rounds),
-        "deployment_mode": "Flower Message API (SuperLink + SuperNode)",
-        "history"        : history,
-    }
-    json_path = os.path.join(results_dir, "training_history.json")
-    with open(json_path, "w") as f:
-        json.dump(meta, f, indent=2)
-    paths["history"] = json_path
-
     return paths
