@@ -1,24 +1,24 @@
 """
-Merge per-TRE RO-Crates into the federated run's RO-Crate.
+Merge per-node RO-Crates into the federated run's RO-Crate.
 
 The provenance-capture layer emits a run-crate describing the federated
 computation (the run action, strategy, frameworks, model, and metrics).
-Separately, each TRE contributes its own RO-Crate describing its institute and
-location. This module folds the TRE provenance into the run-crate to produce a
+Separately, each node contributes its own RO-Crate describing its institute and
+location. This module folds the node provenance into the run-crate to produce a
 single, self-contained provenance record.
 
 Behaviour:
 
   * Each TRE's ``Organization`` is attached to the run's ``CreateAction`` as a
-    contributor. The full TRE entity set (Organization, GeoCoordinates, and the
+    contributor. The full node entity set (Organization, GeoCoordinates, and the
     nested PostalAddress) is embedded so the merged crate stands alone.
 
 Collision handling:
 
-  * TRE entities with absolute-URI ``@id`` values (e.g. a ROR organisation or a
-    GeoNames location) are embedded as-is. When two TREs share an institution,
+  * node entities with absolute-URI ``@id`` values (e.g. a ROR organisation or a
+    GeoNames location) are embedded as-is. When two nodes share an institution,
     the identical ``@id`` causes them to be de-duplicated automatically.
-  * The TRE crate's own packaging entities (the ``./`` root Dataset and the
+  * The node crate's own packaging entities (the ``./`` root Dataset and the
     ``ro-crate-metadata.json`` descriptor) are not carried over: they describe
     the TRE's standalone crate, not the run, and would collide with the
     run-crate's own equivalents.
@@ -27,7 +27,7 @@ Safety:
 
   * The merge never raises on bad input; it logs through a returned status
     dictionary instead.
-  * If the run-crate cannot be found or parsed, the TRE data is left untouched.
+  * If the run-crate cannot be found or parsed, the node data is left untouched.
   * The original run-crate is backed up before modification.
 """
 
@@ -37,7 +37,7 @@ import shutil
 from typing import Optional
 
 
-# Entities with these @id values are TRE-crate-local packaging artefacts and
+# Entities with these @id values are node-crate-local packaging artefacts and
 # must not be merged into the run-crate.
 _SKIP_LOCAL_IDS = {"./", "ro-crate-metadata.json"}
 
@@ -66,9 +66,9 @@ def _find_run_action(graph: list) -> Optional[dict]:
     return None
 
 
-def _extract_tre_entities(crate: dict) -> list:
+def _extract_node_entities(crate: dict) -> list:
     """
-    Pull the embeddable entities (absolute-URI ones) out of a TRE crate's
+    Pull the embeddable entities (absolute-URI ones) out of a node crate's
     @graph, skipping its local packaging entities.
     """
     out = []
@@ -111,7 +111,7 @@ def _append_ref(action: dict, prop: str, ref_id: str) -> None:
     action[prop] = items
 
 
-def merge_tre_crates_into_run_crate(
+def merge_node_crates_into_run_crate(
     run_crate_path: str,
     tre_provenance: dict,
     agent_property: str = "contributor",
@@ -128,7 +128,7 @@ def merge_tre_crates_into_run_crate(
         Maps ``tre_num`` to ``{"cohort", "crate_json", "present"}``, as
         collected by the strategy during the run.
     agent_property : str
-        The ``CreateAction`` property to which the TRE organisations are
+        The ``CreateAction`` property to which the node organisations are
         attached. The default, ``"contributor"``, marks them as participating
         organisations while keeping them distinct from the run's executor
         (recorded separately as the action's agent).
@@ -136,13 +136,13 @@ def merge_tre_crates_into_run_crate(
     Returns
     -------
     dict
-        A status report containing the merged and skipped TREs, any warnings,
+        A status report containing the merged and skipped nodes, any warnings,
         and whether the merged crate was written.
     """
     status = {
         "written"   : False,
-        "merged_tres": [],
-        "skipped_tres": [],
+        "merged_nodes": [],
+        "skipped_nodes": [],
         "warnings"  : [],
         "run_crate_path": run_crate_path,
     }
@@ -169,7 +169,7 @@ def merge_tre_crates_into_run_crate(
     action = _find_run_action(graph)
     if action is None:
         status["warnings"].append(
-            "no CreateAction found in run-crate; embedding TRE entities but "
+            "no CreateAction found in run-crate; embedding node entities but "
             "not linking them to a run action.")
 
     existing_ids = {e.get("@id") for e in graph}
@@ -182,19 +182,19 @@ def merge_tre_crates_into_run_crate(
         crate_json = info.get("crate_json", "")
 
         if not present or not crate_json:
-            status["skipped_tres"].append({"tre_num": tre_num, "cohort": cohort,
+            status["skipped_nodes"].append({"tre_num": tre_num, "cohort": cohort,
                                             "reason": "no crate"})
             continue
         try:
             tre_crate = json.loads(crate_json)
         except json.JSONDecodeError:
-            status["skipped_tres"].append({"tre_num": tre_num, "cohort": cohort,
+            status["skipped_nodes"].append({"tre_num": tre_num, "cohort": cohort,
                                            "reason": "malformed crate JSON"})
             continue
 
-        tre_entities = _extract_tre_entities(tre_crate)
+        tre_entities = _extract_node_entities(tre_crate)
         if not tre_entities:
-            status["skipped_tres"].append({"tre_num": tre_num, "cohort": cohort,
+            status["skipped_nodes"].append({"tre_num": tre_num, "cohort": cohort,
                                            "reason": "no embeddable entities"})
             continue
 
@@ -211,7 +211,7 @@ def merge_tre_crates_into_run_crate(
         if org_id and action is not None:
             _append_ref(action, agent_property, org_id)
 
-        status["merged_tres"].append({"tre_num": tre_num, "cohort": cohort,
+        status["merged_nodes"].append({"tre_num": tre_num, "cohort": cohort,
                                       "org_id": org_id})
 
     try:

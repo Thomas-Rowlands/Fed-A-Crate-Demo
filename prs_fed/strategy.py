@@ -1,5 +1,5 @@
 """
-A FedAvg strategy that additionally records per-TRE, per-round metrics.
+A FedAvg strategy that additionally records per-node, per-round metrics.
 
 The built-in ``FedAvg`` provides sample-weighted averaging of model weights
 and metrics, along with all client-sampling logic. It retains only the
@@ -10,7 +10,7 @@ training and evaluation metrics (and its provenance crate) before delegating
 the actual aggregation to the base class. The captured history is written to
 ``training_history.json`` and the provenance is merged into the run-crate.
 
-If per-TRE history is not required, this subclass can be removed and
+If per-node history is not required, this subclass can be removed and
 ``flwr.serverapp.strategy.FedAvg`` used directly.
 """
 
@@ -19,7 +19,7 @@ from flwr.serverapp.strategy import FedAvg
 
 
 class HistoryFedAvg(FedAvg):
-    """FedAvg that also tracks per-TRE metrics for each round."""
+    """FedAvg that also tracks per-node metrics for each round."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -31,9 +31,9 @@ class HistoryFedAvg(FedAvg):
         # the run-crate as spurious, empty hyperparameter entries.
         #
         # For the same reason, no public property accessors are provided; the
-        # server reads these as ``strategy._per_tre_history`` and
+        # server reads these as ``strategy._per_node_history`` and
         # ``strategy._provenance``.
-        self._per_tre_history: dict[str, dict[int, dict]] = {
+        self._per_node_history: dict[str, dict[int, dict]] = {
             "train": {},
             "evaluate": {},
         }
@@ -54,7 +54,7 @@ class HistoryFedAvg(FedAvg):
         }
 
     def aggregate_train(self, server_round, replies):
-        per_tre = {}
+        per_node = {}
         for r in replies:
             if r.has_error():
                 continue
@@ -62,25 +62,25 @@ class HistoryFedAvg(FedAvg):
             meta = r.content.get("meta")        # ConfigRecord carrying identity
             if mr is None:
                 continue
-            # Identity (TRE number, cohort) is read from the non-aggregated
+            # Identity (node number, cohort) is read from the non-aggregated
             # ConfigRecord rather than the MetricRecord, which FedAvg averages.
             tre_num = int(meta["tre-num"]) if meta is not None else 0
             cohort  = str(meta["cohort"])  if meta is not None else "?"
             self._capture_provenance(meta, tre_num, cohort)
-            per_tre[tre_num] = {
+            per_node[tre_num] = {
                 "cohort"      : cohort,
                 "train-auc"   : float(mr.get("train-auc",  float("nan"))),
                 "train-f1"    : float(mr.get("train-f1",   float("nan"))),
                 "train-acc"   : float(mr.get("train-acc",  float("nan"))),
                 "num-examples": int(mr.get("num-examples", 0)),
             }
-        self._per_tre_history["train"][server_round] = per_tre
+        self._per_node_history["train"][server_round] = per_node
 
         # Delegate weight and metric aggregation to the base implementation.
         return super().aggregate_train(server_round, replies)
 
     def aggregate_evaluate(self, server_round, replies):
-        per_tre = {}
+        per_node = {}
         for r in replies:
             if r.has_error():
                 continue
@@ -91,7 +91,7 @@ class HistoryFedAvg(FedAvg):
             tre_num = int(meta["tre-num"]) if meta is not None else 0
             cohort  = str(meta["cohort"])  if meta is not None else "?"
             self._capture_provenance(meta, tre_num, cohort)
-            per_tre[tre_num] = {
+            per_node[tre_num] = {
                 "cohort"      : cohort,
                 "test-auc"    : float(mr.get("test-auc",  float("nan"))),
                 "test-acc"    : float(mr.get("test-acc",  float("nan"))),
@@ -101,6 +101,6 @@ class HistoryFedAvg(FedAvg):
                 "test-ll"     : float(mr.get("test-ll",   float("nan"))),
                 "num-examples": int(mr.get("num-examples", 0)),
             }
-        self._per_tre_history["evaluate"][server_round] = per_tre
+        self._per_node_history["evaluate"][server_round] = per_node
 
         return super().aggregate_evaluate(server_round, replies)

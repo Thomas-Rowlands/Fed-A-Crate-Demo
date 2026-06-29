@@ -1,13 +1,13 @@
 # Federated PRS Learning with Provenance Capture
 
 A reference implementation of **privacy-preserving federated learning across
-Trusted Research Environments (TREs)**, with **automated, machine-readable
+Trusted Research Environments (nodes)**, with **automated, machine-readable
 provenance** of both the computation and the participating institutions.
 
-Three TREs each hold a genetics cohort that cannot leave its environment. They
+Three nodes each hold a genetics cohort that cannot leave its environment. They
 collaboratively train a shared model to predict disease case/control status
 from polygenic risk score (PRS) variants — **without any patient-level data
-ever crossing a TRE boundary**. Only model weights are exchanged. The run emits
+ever crossing a node boundary**. Only model weights are exchanged. The run emits
 a single [RO-Crate](https://www.researchobject.org/ro-crate/) documenting *what
 was run, with which software and configuration, and which institutions
 contributed*.
@@ -24,9 +24,9 @@ profile](https://esciencelab.org.uk/federated-learning-ro-crate-profile/).
 
 ## What this demonstrates
 
-1. **Federated learning across TREs with the Flower Message API.** A real
+1. **Federated learning across nodes with the Flower Message API.** A real
    client/server deployment (SuperLink + SuperNodes), not a single-process
-   simulation. Each TRE runs in isolation with only its own data mounted.
+   simulation. Each node runs in isolation with only its own data mounted.
 
 2. **Two-source provenance, merged into one record.** Every run produces an
    RO-Crate that combines:
@@ -34,7 +34,7 @@ profile](https://esciencelab.org.uk/federated-learning-ro-crate-profile/).
      aggregation strategy and its hyperparameters, every framework with its
      declared **and** installed version, the run configuration, per-round and
      final metrics, and start/end timing.
-   - *Institutional provenance* — each TRE supplies its own RO-Crate
+   - *Institutional provenance* — each node supplies its own RO-Crate
      (organisation, [ROR](https://ror.org/) identifier, geolocation); these are
      folded into the run-crate as **contributors** on the run action.
 
@@ -49,7 +49,7 @@ profile](https://esciencelab.org.uk/federated-learning-ro-crate-profile/).
 
 The system runs as a set of containers: a central control plane and one
 isolated pair of containers per TRE. Only model weights cross the boundary
-between the control plane and each TRE — patient data never leaves.
+between the control plane and each node — patient data never leaves.
 
 ```mermaid
 flowchart TB
@@ -58,17 +58,17 @@ flowchart TB
         SA["ServerApp — FedAvg + provenance"]
     end
 
-    subgraph tre1["TRE 1 — data stays local"]
+    subgraph node1["node 1 — data stays local"]
         SN1["SuperNode 1"]
         CA1["ClientApp 1 — local training"]
     end
 
-    subgraph tre2["TRE 2 — data stays local"]
+    subgraph node2["node 2 — data stays local"]
         SN2["SuperNode 2"]
         CA2["ClientApp 2 — local training"]
     end
 
-    subgraph tre3["TRE 3 — data stays local"]
+    subgraph node3["node 3 — data stays local"]
         SN3["SuperNode 3"]
         CA3["ClientApp 3 — local training"]
     end
@@ -82,7 +82,7 @@ flowchart TB
     SN3 --- CA3
 
     classDef plane fill:#E6F1FB,stroke:#185FA5,color:#042C53
-    classDef tre fill:#E1F5EE,stroke:#0F6E56,color:#04342C
+    classDef node fill:#E1F5EE,stroke:#0F6E56,color:#04342C
     class SL,SA plane
     class SN1,CA1,SN2,CA2,SN3,CA3 tre
 ```
@@ -97,9 +97,9 @@ final round, the server writes the model and the merged provenance crate.
 ```mermaid
 sequenceDiagram
     participant S as ServerApp
-    participant T1 as TRE 1
-    participant T2 as TRE 2
-    participant T3 as TRE 3
+    participant T1 as node 1
+    participant T2 as node 2
+    participant T3 as node 3
 
     Note over S,T3: One federation round (repeated N times)
 
@@ -107,7 +107,7 @@ sequenceDiagram
     S->>T2: broadcast global model
     S->>T3: broadcast global model
 
-    Note over T1,T3: each TRE trains locally on its own data
+    Note over T1,T3: each node trains locally on its own data
 
     T1-->>S: weights + metrics + RO-Crate
     T2-->>S: weights + metrics + RO-Crate
@@ -155,10 +155,10 @@ Outputs appear in `./results/`:
 results/
 ├── prs_global_model.pkl      # trained sklearn model (predict_proba-ready)
 ├── prs_global_weights.npz    # raw coef + intercept
-├── training_history.json     # per-round, per-TRE metrics
+├── training_history.json     # per-round, per-node metrics
 └── fl_crate/
     └── ro-crate/
-        └── ro-crate-metadata.json   # the provenance crate (TREs merged in)
+        └── ro-crate-metadata.json   # the provenance crate (nodes merged in)
 ```
 
 ### Configure a run
@@ -174,7 +174,7 @@ flwr run . local-deployment --stream \
 | Key | Default | Meaning |
 |---|---|---|
 | `num-server-rounds` | 10 | Federation rounds |
-| `local-epochs` | 5 | Local training passes per round per TRE |
+| `local-epochs` | 5 | Local training passes per round per node |
 | `n-features` | 313 | SNP feature count (must match the data) |
 | `threshold` | 0.5 | Classification decision threshold |
 | `author-name` / `author-orcid` / `author-affiliation` | "" | Provenance author (set these for a complete crate) |
@@ -194,35 +194,35 @@ Place the three CSVs in `data/` and reference them in `compose.yml` (already
 wired for `USA_young.csv`, `USA_old.csv`, `USA_normal.csv`). Each is mounted
 read-only into only its own TRE's container.
 
-> The demonstration cohorts are deliberately **age-imbalanced** across TREs to
+> The demonstration cohorts are deliberately **age-imbalanced** across nodes to
 > show that federation produces a balanced global model even when no single
-> TRE holds representative data.
+> node holds representative data.
 
 ---
 
 ## Provenance in detail
 
-### Per-TRE crates (institutional provenance)
+### Per-node crates (institutional provenance)
 
-Each TRE supplies an RO-Crate at `provenance/<cohort>/ro-crate-metadata.json`,
+Each node supplies an RO-Crate at `provenance/<cohort>/ro-crate-metadata.json`,
 mounted into its container at a fixed path. A minimal crate is a flat JSON-LD
 `@graph`: a root `Dataset` whose `about` points to an `Organization` (with a
 ROR id as its `@id`), whose `location` points to a `GeoCoordinates` entity with
 a nested `PostalAddress`. See the bundled examples for the exact shape.
 
-If a TRE's crate is missing or malformed, that TRE is logged and **the
+If a TRE's crate is missing or malformed, that node is logged and **the
 federation still runs** — provenance is best-effort, never a hard dependency.
 
 > **Docker bind-mount caveat.** Each crate file must exist on the host *before*
 > `docker compose up`. Docker mounts a single file by path; if it doesn't
 > exist, Docker creates a *directory* there instead and the container breaks.
-> The bundled files cover the three demo TREs; this only matters if you add a
-> TRE or delete a file.
+> The bundled files cover the three demo nodes; this only matters if you add a
+> node or delete a file.
 
 ### Run-crate (computational provenance)
 
 The [`flwrcrate`](prs_fed/flwrcrate/) module wraps the run and emits the
-computational provenance automatically. The per-TRE Organizations are then
+computational provenance automatically. The per-node Organizations are then
 merged into that crate as `contributor`s on the run's `CreateAction`
 (`prs_fed/crate_merge.py`). Institutions that share a ROR id are de-duplicated.
 
@@ -247,18 +247,18 @@ plain sklearn/NumPy with no Flower dependency. As long as
 of the pipeline is unchanged.
 
 **To use a different aggregation strategy:** `prs_fed/strategy.py` subclasses
-Flower's `FedAvg` only to record per-TRE history. Swap the base class for
+Flower's `FedAvg` only to record per-node history. Swap the base class for
 `FedProx`, `FedAdam`, etc., or drop the subclass entirely and instantiate the
 built-in strategy in `prs_fed/server_app.py`.
 
-**To change the number of TREs:** add or remove `supernode-N` / `clientapp-N`
+**To change the number of nodes:** add or remove `supernode-N` / `clientapp-N`
 service pairs in `compose.yml`, update `min_train_nodes` (and the related
 minimums) in `server_app.py`, and provide each new TRE's CSV and crate.
 
 **To add provenance to a different Flower app:** the `flwrcrate` integration is
 three touchpoints in your ServerApp — a context manager around
 `strategy.start(...)`, and a `record_result(...)` call. See `server_app.py` and
-the module's own README. The TRE-crate merge (`crate_merge.py`) is independent
+the module's own README. The node-crate merge (`crate_merge.py`) is independent
 and reusable: give it a run-crate path and a dict of per-source crates.
 
 **Key files**
@@ -266,11 +266,11 @@ and reusable: give it a run-crate path and a dict of per-source crates.
 | File | Responsibility |
 |---|---|
 | `prs_fed/task.py` | The ML: model, data loading, evaluation (no Flower) |
-| `prs_fed/client_app.py` | TRE-side: train/evaluate handlers, loads local crate |
+| `prs_fed/client_app.py` | node-side: train/evaluate handlers, loads local crate |
 | `prs_fed/server_app.py` | Orchestration: runs the federation, writes outputs |
-| `prs_fed/strategy.py` | FedAvg subclass that records per-TRE history |
+| `prs_fed/strategy.py` | FedAvg subclass that records per-node history |
 | `prs_fed/provenance.py` | Load / validate / summarise an RO-Crate |
-| `prs_fed/crate_merge.py` | Merge per-TRE crates into the run-crate |
+| `prs_fed/crate_merge.py` | Merge per-node crates into the run-crate |
 | `prs_fed/model_io.py` | Persist model, weights, history |
 | `compose.yml` | The 7-container deployment topology |
 
@@ -284,18 +284,18 @@ and reusable: give it a run-crate path and a dict of per-source crates.
 ├── compose.yml                 SuperLink + ServerApp + 3×(SuperNode+ClientApp)
 ├── prs_fed/
 │   ├── task.py                 ML logic (model, data, metrics)
-│   ├── client_app.py           TRE-side train/evaluate
+│   ├── client_app.py           node-side train/evaluate
 │   ├── server_app.py           Orchestration + provenance wiring
 │   ├── strategy.py             HistoryFedAvg
 │   ├── provenance.py           RO-Crate load/validate/summarise
-│   ├── crate_merge.py          Merge TRE crates into the run-crate
+│   ├── crate_merge.py          Merge node crates into the run-crate
 │   ├── model_io.py             Output persistence
 │   └── flwrcrate/              Provenance-capture module (bundled)
-├── data/                       TRE cohort CSVs (you provide)
+├── data/                       node cohort CSVs (you provide)
 │   ├── USA_young.csv
 │   ├── USA_old.csv
 │   └── USA_normal.csv
-├── provenance/                 Per-TRE RO-Crates
+├── provenance/                 Per-node RO-Crates
 │   ├── USA_young/ro-crate-metadata.json
 │   ├── USA_old/ro-crate-metadata.json
 │   └── USA_normal/ro-crate-metadata.json
@@ -342,7 +342,7 @@ This is a milestone demonstration. Known boundaries, stated plainly for
 reviewers:
 
 - **No differential privacy or secure aggregation.** Only model weights cross
-  TRE boundaries, but weights can in principle leak information about training
+  node boundaries, but weights can in principle leak information about training
   data. Production deployments would add DP-SGD or secure aggregation (both
   supported by Flower as additions).
 - **No TLS by default.** The compose setup runs on a private Docker network in

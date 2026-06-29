@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name        = "prs-fed"
 version     = "1.0.0"
-description = "Federated PRS case/control prediction across 3 TREs (Flower Message API)"
+description = "Federated PRS case/control prediction across 3 nodes (Flower Message API)"
 license     = "Apache-2.0"
 dependencies = [
     "flwr>=1.29.0",

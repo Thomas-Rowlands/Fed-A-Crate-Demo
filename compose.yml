@@ -5,11 +5,11 @@
 # Architecture:
 #   superlink           — central coordinator (the "Flower control plane")
 #   serverapp           — runs the ServerApp code (orchestration + saving)
-#   supernode-1..3      — one long-running supervisor per TRE
-#   clientapp-1..3      — one ClientApp executor per TRE
+#   supernode-1..3      — one long-running supervisor per node
+#   clientapp-1..3      — one ClientApp executor per node
 #                         (does the actual sklearn training)
 #
-# Each TRE is supernode-N + clientapp-N. They talk over a private channel
+# Each node is supernode-N + clientapp-N. They talk over a private channel
 # inside Docker; only the supernode connects out to the SuperLink.
 #
 # Usage:
@@ -78,7 +78,7 @@ services:
     depends_on:
       - superlink
 
-  # ── TRE 1 (Young) ────────────────────────────────────────────────────────
+  # ── node 1 (Young) ────────────────────────────────────────────────────────
   supernode-1:
     image: flwr/supernode:1.29.0
     command:
@@ -90,7 +90,7 @@ services:
       - --isolation
       - process
       - --node-config
-      - "cohort-csv='/data/USA_young.csv' cohort-label='USA_young' tre-num=1"
+      - "cohort-csv='/data/USA_young.csv' cohort-label='USA_young' node-num=1"
     depends_on:
       - superlink
 
@@ -108,7 +108,7 @@ services:
     depends_on:
       - supernode-1
 
-  # ── TRE 2 (Old) ──────────────────────────────────────────────────────────
+  # ── node 2 (Old) ──────────────────────────────────────────────────────────
   supernode-2:
     image: flwr/supernode:1.29.0
     command:
@@ -120,7 +120,7 @@ services:
       - --isolation
       - process
       - --node-config
-      - "cohort-csv='/data/USA_old.csv' cohort-label='USA_old' tre-num=2"
+      - "cohort-csv='/data/USA_old.csv' cohort-label='USA_old' node-num=2"
     depends_on:
       - superlink
 
@@ -138,7 +138,7 @@ services:
     depends_on:
       - supernode-2
 
-  # ── TRE 3 (Normal) ───────────────────────────────────────────────────────
+  # ── node 3 (Normal) ───────────────────────────────────────────────────────
   supernode-3:
     image: flwr/supernode:1.29.0
     command:
@@ -150,7 +150,7 @@ services:
       - --isolation
       - process
       - --node-config
-      - "cohort-csv='/data/USA_normal.csv' cohort-label='USA_normal' tre-num=3"
+      - "cohort-csv='/data/USA_normal.csv' cohort-label='USA_normal' node-num=3"
     depends_on:
       - superlink
 

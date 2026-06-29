@@ -13,7 +13,7 @@ functions rather than subclassing a client base class. The ``@app.train`` and
      identity and provenance.
 
 ``Context.node_config`` carries the configuration passed to this SuperNode at
-startup (the local CSV path, cohort label, and TRE number), set via the
+startup (the local CSV path, cohort label, and node number), set via the
 ``--node-config`` flag in the deployment configuration.
 """
 
@@ -76,7 +76,7 @@ app = ClientApp()
 
 @app.train()
 def train(msg: Message, context: Context) -> Message:
-    """Local training step. Runs on the TRE for one federation round."""
+    """Local training step. Runs on the node for one federation round."""
     data         = _get_local_data(context)
     local_epochs = int(msg.content["config"].get("local-epochs", 5))
 

@@ -6,7 +6,7 @@ Called once the federation completes, this module writes:
   * ``prs_global_model.pkl``    — the trained scikit-learn model, ready for
     ``predict_proba``
   * ``prs_global_weights.npz``  — the raw coefficient and intercept arrays
-  * ``training_history.json``   — per-round, per-TRE metrics and run metadata
+  * ``training_history.json``   — per-round, per-node metrics and run metadata
 
 Provenance (the RO-Crate) is handled separately by the provenance-capture
 layer and ``crate_merge``; it is not written here.

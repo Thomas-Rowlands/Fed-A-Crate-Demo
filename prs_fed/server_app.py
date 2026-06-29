@@ -17,7 +17,7 @@ Its responsibilities are:
   2. Instantiate the strategy.
   3. Run the federation via ``strategy.start(...)``, which blocks until all
      rounds complete and returns a ``Result``.
-  4. Optionally emit an RO-Crate of the run and merge in the per-TRE
+  4. Optionally emit an RO-Crate of the run and merge in the per-node
      provenance.
   5. Persist the final model, weights, and training history.
 
@@ -36,7 +36,7 @@ from flwr.serverapp          import Grid, ServerApp
 
 from prs_fed.strategy        import HistoryFedAvg
 from prs_fed.model_io        import save_final_artifacts
-from prs_fed.crate_merge     import merge_tre_crates_into_run_crate
+from prs_fed.crate_merge     import merge_node_crates_into_run_crate
 
 # Provenance capture is an optional dependency. When the ``flwrcrate`` package
 # is available, the run emits an RO-Crate describing the federation; when it is
@@ -139,7 +139,7 @@ def main(grid: Grid, context: Context) -> None:
             context, strategy,
             output_dir     = crate_out,                       # absolute path under results_dir
             pyproject_path = pyproject_path or "pyproject.toml",
-            app_name       = "Federated PRS case/control classification across 3 TREs",
+            app_name       = "Federated PRS case/control classification across 3 nodes",
             author         = _build_author(cfg),
             license        = "https://spdx.org/licenses/MIT.html",
         ) as tracker:
@@ -154,20 +154,20 @@ def main(grid: Grid, context: Context) -> None:
             tracker.record_result(result)
         print(f"  [flwrcrate] RO-Crate written to {crate_out}/ro-crate/")
 
-        # ── Merge per-TRE provenance into the run-crate ──────────────────────
+        # ── Merge per-node provenance into the run-crate ──────────────────────
         # Fold each TRE's RO-Crate (institute and location) into the run-crate
         # as contributor organisations on the run action, producing a single
         # self-contained provenance record.
         run_crate_path = os.path.join(crate_out, "ro-crate", "ro-crate-metadata.json")
-        merge_status = merge_tre_crates_into_run_crate(
+        merge_status = merge_node_crates_into_run_crate(
             run_crate_path = run_crate_path,
             tre_provenance = strategy._provenance,
         )
         if merge_status["written"]:
-            merged = [t["cohort"] for t in merge_status["merged_tres"]]
-            print(f"  [provenance] Merged TRE crates into run-crate: {merged}")
-        if merge_status["skipped_tres"]:
-            skipped = [(t["cohort"], t["reason"]) for t in merge_status["skipped_tres"]]
+            merged = [t["cohort"] for t in merge_status["merged_nodes"]]
+            print(f"  [provenance] Merged node crates into run-crate: {merged}")
+        if merge_status["skipped_nodes"]:
+            skipped = [(t["cohort"], t["reason"]) for t in merge_status["skipped_nodes"]]
             print(f"  [provenance] Skipped: {skipped}")
         for w in merge_status["warnings"]:
             print(f"  [provenance] WARNING: {w}")
@@ -187,9 +187,9 @@ def main(grid: Grid, context: Context) -> None:
     # result.arrays holds the final aggregated parameters from the last round.
     coef, intercept = result.arrays.to_numpy_ndarrays()
 
-    # Combine the strategy's per-TRE history with Flower's aggregated metrics.
+    # Combine the strategy's per-node history with Flower's aggregated metrics.
     full_history = {
-        "per_tre"            : strategy._per_tre_history,
+        "per_node"            : strategy._per_node_history,
         "aggregated_train"   : _round_records_to_dict(result.train_metrics_clientapp),
         "aggregated_evaluate": _round_records_to_dict(result.evaluate_metrics_clientapp),
     }

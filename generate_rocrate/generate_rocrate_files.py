@@ -1,5 +1,5 @@
 """
-generate_tre_crates.py — Generate per-TRE RO-Crate provenance metadata.
+generate_node_crates.py — Generate per-node RO-Crate provenance metadata.
 
 Produces one ``ro-crate-metadata.json`` per TRE, each describing the
 contributing institution, its location, and the people involved.
@@ -12,7 +12,7 @@ from rocrate.model.contextentity import ContextEntity
 from rocrate.model.person import Person
 
 
-# ── Parent institution (shared across all TREs) ──────────────────────────────
+# ── Parent institution (shared across all nodes) ──────────────────────────────
 
 PARENT_ROR   = "https://ror.org/01ee9ar58"
 PARENT_NAME  = "University of Nottingham"
@@ -34,7 +34,7 @@ GEO_PROPERTIES = {
     },
 }
 
-# ── People (shared across all TREs; ORCID as @id where available) ─────────────
+# ── People (shared across all nodes; ORCID as @id where available) ─────────────
 
 PEOPLE = [
     {"id": "https://orcid.org/0000-0002-7912-4203", "name": "Thomas Rowlands"},
@@ -43,13 +43,13 @@ PEOPLE = [
     {"id": "https://orcid.org/0000-0002-0292-7972", "name": "Tim Beck"},
 ]
 
-# ── Per-TRE definitions ───────────────────────────────────────────────────────
-# Each TRE becomes a distinct sub-organisation. The sub-org @id is what makes
+# ── Per-node definitions ───────────────────────────────────────────────────────
+# Each node becomes a distinct sub-organisation. The sub-org @id is what makes
 # the three records distinct in the merged crate. Here the @id is derived from
 # the parent ROR with a fragment suffix, which keeps the link to the real
 # institution explicit while remaining unique per TRE.
 
-TRES = [
+nodes = [
     {"key": "USA_young",  "suborg_suffix": "tre-young",
      "suborg_name": "University of Nottingham — Young Cohort TRE"},
     {"key": "USA_old",    "suborg_suffix": "tre-old",
@@ -107,7 +107,7 @@ def build_crate(tre: dict) -> ROCrate:
 
 
 def main():
-    for tre in TRES:
+    for node in nodes:
         crate = build_crate(tre)
         out_dir = OUTPUT_ROOT / tre["key"]
         out_dir.mkdir(parents=True, exist_ok=True)

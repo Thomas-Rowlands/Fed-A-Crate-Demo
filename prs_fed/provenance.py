@@ -1,7 +1,7 @@
 """
 RO-Crate loading, validation, and summarisation.
 
-Each TRE ships an RO-Crate (``ro-crate-metadata.json``) describing its
+Each node ships an RO-Crate (``ro-crate-metadata.json``) describing its
 institute, location, and organisational provenance. The client loads this
 crate from a fixed path, validates its basic structure, and sends it verbatim
 to the server, where it is folded into the run's provenance record.
