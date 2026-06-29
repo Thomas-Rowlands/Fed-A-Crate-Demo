@@ -1,7 +1,7 @@
 # Federated PRS Learning with Provenance Capture
 
 A reference implementation of **privacy-preserving federated learning across
-Trusted Research Environments (nodes)**, with **automated, machine-readable
+data stored by different organisations/environments)**, with **automated, machine-readable
 provenance** of both the computation and the participating institutions.
 
 Three nodes each hold a genetics cohort that cannot leave its environment. They
