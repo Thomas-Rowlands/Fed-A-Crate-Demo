@@ -139,15 +139,38 @@ different model.
 ### Run
 
 ```bash
-# 1. Start the federation platform (stays running; serves many jobs)
+# 1. Register the SuperLink connection with the Flower CLI (once per machine)
+./scripts/setup_federation.sh
+
+# 2. Start the federation platform (stays running; serves many jobs)
 docker compose up --build -d
 
-# 2. Submit a federation job
+# 3. Submit a federation job
 flwr run . local-deployment --stream
 
-# 3. When finished, tear down
+# 4. When finished, tear down
 docker compose down -v
 ```
+Step 1 is a one-time setup per machine. Flower (version 1.26 and later) stores
+SuperLink connection settings in a user-level configuration file
+(`~/.flwr/config.toml`) rather than in the project, so a freshly cloned
+repository must register its connection once before `flwr run` can submit jobs.
+The script adds a `local-deployment` connection pointing at the local
+deployment and is safe to run more than once. To register it manually instead,
+add the following to `~/.flwr/config.toml`:
+ 
+```toml
+[superlink.local-deployment]
+address  = "127.0.0.1:9093"
+insecure = true
+```
+ 
+Verify the connection with `flwr config list`.
+ 
+The platform started by `docker compose up` stays running and can serve many
+successive jobs. After changing any code under `prs_fed/`, rebuild the images
+with `docker compose up --build -d` before submitting the next job.
+
 
 Outputs appear in `./results/`:
 
