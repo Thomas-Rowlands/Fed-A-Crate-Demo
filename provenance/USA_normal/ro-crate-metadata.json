@@ -5,7 +5,7 @@
             "@id": "./",
             "@type": "Dataset",
             "about": {
-                "@id": "https://ror.org/01ee9ar58#tre-normal"
+                "@id": "https://ror.org/01ee9ar58#node-normal"
             },
             "datePublished": "2026-06-28T17:50:10+00:00"
         },
@@ -60,7 +60,7 @@
             "name": "Tim Beck"
         },
         {
-            "@id": "https://ror.org/01ee9ar58#tre-normal",
+            "@id": "https://ror.org/01ee9ar58#node-normal",
             "@type": "Organization",
             "location": {
                 "@id": "https://www.geonames.org/10858713/university-of-nottingham.html"
