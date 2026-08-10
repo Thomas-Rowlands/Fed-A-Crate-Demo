@@ -102,7 +102,7 @@ def _resolve(by_id: dict, ref: Any) -> Optional[dict]:
 def summarise_crate(crate: Optional[dict]) -> dict:
     """
     Extract the human-relevant provenance fields into a flat dictionary, so a
-    reader does not have to parse JSON-LD to identify a TRE.
+    reader does not have to parse JSON-LD to identify a node.
 
     The extraction follows the expected crate structure::
 

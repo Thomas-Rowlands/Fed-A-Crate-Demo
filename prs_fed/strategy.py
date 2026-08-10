@@ -64,7 +64,7 @@ class HistoryFedAvg(FedAvg):
                 continue
             # Identity (node number, cohort) is read from the non-aggregated
             # ConfigRecord rather than the MetricRecord, which FedAvg averages.
-            node_num = int(meta["tre-num"]) if meta is not None else 0
+            node_num = int(meta["node-num"]) if meta is not None else 0
             cohort  = str(meta["cohort"])  if meta is not None else "?"
             self._capture_provenance(meta, node_num, cohort)
             per_node[node_num] = {
@@ -88,7 +88,7 @@ class HistoryFedAvg(FedAvg):
             meta = r.content.get("meta")
             if mr is None:
                 continue
-            node_num = int(meta["tre-num"]) if meta is not None else 0
+            node_num = int(meta["node-num"]) if meta is not None else 0
             cohort  = str(meta["cohort"])  if meta is not None else "?"
             self._capture_provenance(meta, node_num, cohort)
             per_node[node_num] = {

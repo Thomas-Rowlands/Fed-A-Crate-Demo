@@ -174,10 +174,10 @@ def merge_node_crates_into_run_crate(
 
     existing_ids = {e.get("@id") for e in graph}
 
-    # 3. Process each TRE.
+    # 3. Process each node.
     for node_num in sorted(node_provenance.keys()):
         info       = node_provenance[node_num]
-        cohort     = info.get("cohort", f"tre{node_num}")
+        cohort     = info.get("cohort", f"node{node_num}")
         present    = info.get("present", False)
         crate_json = info.get("crate_json", "")
 

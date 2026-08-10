@@ -23,7 +23,7 @@ packages = ["prs_fed"]
 # The [tool.flwr.app] block tells the Flower runtime where to find this app's
 # ServerApp and ClientApp objects. The paths are `module:variable_name`.
 [tool.flwr.app]
-publisher = "tre-federation"
+publisher = "prs-federation"
 
 [tool.flwr.app.components]
 serverapp = "prs_fed.server_app:app"

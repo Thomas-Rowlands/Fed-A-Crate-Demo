@@ -48,7 +48,7 @@ profile](https://esciencelab.org.uk/federated-learning-ro-crate-profile/).
 ### Deployment topology
 
 The system runs as a set of containers: a central control plane and one
-isolated pair of containers per TRE. Only model weights cross the boundary
+isolated pair of containers per node. Only model weights cross the boundary
 between the control plane and each node — patient data never leaves.
 
 ```mermaid
@@ -84,12 +84,12 @@ flowchart TB
     classDef plane fill:#E6F1FB,stroke:#185FA5,color:#042C53
     classDef node fill:#E1F5EE,stroke:#0F6E56,color:#04342C
     class SL,SA plane
-    class SN1,CA1,SN2,CA2,SN3,CA3 tre
+    class SN1,CA1,SN2,CA2,SN3,CA3 node
 ```
 
 ### What happens each round
 
-Each federation round, the server broadcasts the current global model; each TRE
+Each federation round, the server broadcasts the current global model; each node
 trains locally on its private cohort and returns updated weights plus metrics
 (and its RO-Crate); the server aggregates the weights with FedAvg. After the
 final round, the server writes the model and the merged provenance crate.
@@ -309,9 +309,9 @@ and reusable: give it a run-crate path and a dict of per-source crates.
 - **`superlink`** — the control plane; stays up across many jobs.
 - **`serverapp`** — runs the ServerApp (orchestration + provenance) when a job
   is submitted.
-- **`supernode-1..3`** — one persistent supervisor per TRE; connects out to the
+- **`supernode-1..3`** — one persistent supervisor per node; connects out to the
   SuperLink.
-- **`clientapp-1..3`** — one executor per TRE; runs the actual training. Only
+- **`clientapp-1..3`** — one executor per node; runs the actual training. Only
   these mount the node's CSV and crate.
 
 The SuperNode/ClientApp split is Flower's process-isolation model: the

@@ -2,16 +2,16 @@
 # gen_certs.sh
 # ─────────────────────────────────────────────────────────────────────────
 # Generates a self-signed CA + server cert + key for testing TLS between
-# the central server and the TRE clients.
+# the central server and the node clients.
 #
-# For real deployments across actual TREs you'd use certs issued by your
+# For real deployments across actual nodes you'd use certs issued by your
 # institution's CA instead of self-signed ones.
 #
 # Usage:
 #     bash gen_certs.sh
 #     # then in docker-compose.yml, uncomment the CERTS_DIR env var and
 #     # the ./certs volume mount on fed-server, AND set CERTS_DIR=/certs
-#     # on each tre1/2/3 service plus mount ./certs:/certs:ro there too.
+#     # on each node1/2/3 service plus mount ./certs:/certs:ro there too.
 # ─────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -64,5 +64,5 @@ echo "Next steps:"
 echo "  1. Uncomment the CERTS_DIR env var and ./certs volume mount on"
 echo "     fed-server in docker-compose.yml"
 echo "  2. Add the same CERTS_DIR=/certs env var and"
-echo "     ./certs:/certs:ro mount to each tre1/2/3 service"
+echo "     ./certs:/certs:ro mount to each node1/2/3 service"
 echo "  3. docker compose up --build"

@@ -1,5 +1,5 @@
 """
-TRE-side application (Flower ClientApp).
+node-side application (Flower ClientApp).
 
 Under the Flower Message API a ClientApp is defined by decorating handler
 functions rather than subclassing a client base class. The ``@app.train`` and
@@ -44,7 +44,7 @@ def _get_local_data(context: Context) -> dict:
 
     csv_path     = str(context.node_config.get("cohort-csv", "/data/cohort.csv"))
     cohort_label = str(context.node_config.get("cohort-label", "cohort"))
-    node_num      = int(context.node_config.get("tre-num", 0))
+    node_num      = int(context.node_config.get("node-num", 0))
 
     X_train, X_test, y_train, y_test, _scaler, meta = load_local_cohort(csv_path)
 
@@ -98,7 +98,7 @@ def train(msg: Message, context: Context) -> Message:
     updated_arrays = ArrayRecord([model.coef_[0], model.intercept_])
     metrics = MetricRecord({
         # FedAvg sample-weight-averages every key in a MetricRecord. Only
-        # genuine numeric metrics belong here; identifiers such as the TRE
+        # genuine numeric metrics belong here; identifiers such as the node
         # number must not, or they would be averaged into a meaningless value.
         # "num-examples" is the default key FedAvg uses for the sample weight.
         "num-examples": data["meta"]["n_train"],
@@ -111,7 +111,7 @@ def train(msg: Message, context: Context) -> Message:
     # aggregate. The RO-Crate is sent verbatim as a JSON string, since a
     # ConfigRecord cannot hold nested objects.
     meta = ConfigRecord({
-        "tre-num"        : data["node_num"],
+        "node-num"       : data["node_num"],
         "cohort"         : data["cohort_label"],
         "ro-crate"       : data["crate_json"],
         "ro-crate-present": data["crate_present"],
@@ -147,7 +147,7 @@ def evaluate(msg: Message, context: Context) -> Message:
 
     # Identity and provenance in a ConfigRecord (not aggregated).
     meta = ConfigRecord({
-        "tre-num"        : data["node_num"],
+        "node-num"       : data["node_num"],
         "cohort"         : data["cohort_label"],
         "ro-crate"       : data["crate_json"],
         "ro-crate-present": data["crate_present"],

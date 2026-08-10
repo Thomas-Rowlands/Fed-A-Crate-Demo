@@ -1,7 +1,7 @@
 """
 generate_node_crates.py — Generate per-node RO-Crate provenance metadata.
 
-Produces one ``ro-crate-metadata.json`` per TRE, each describing the
+Produces one ``ro-crate-metadata.json`` per node, each describing the
 contributing institution, its location, and the people involved.
 """
 
@@ -47,22 +47,22 @@ PEOPLE = [
 # Each node becomes a distinct sub-organisation. The sub-org @id is what makes
 # the three records distinct in the merged crate. Here the @id is derived from
 # the parent ROR with a fragment suffix, which keeps the link to the real
-# institution explicit while remaining unique per TRE.
+# institution explicit while remaining unique per node.
 
 nodes = [
-    {"key": "USA_young",  "suborg_suffix": "tre-young",
-     "suborg_name": "University of Nottingham — Young Cohort TRE"},
-    {"key": "USA_old",    "suborg_suffix": "tre-old",
-     "suborg_name": "University of Nottingham — Older Cohort TRE"},
-    {"key": "USA_normal", "suborg_suffix": "tre-normal",
-     "suborg_name": "University of Nottingham — Reference Cohort TRE"},
+    {"key": "USA_young",  "suborg_suffix": "node-young",
+     "suborg_name": "University of Nottingham — Young Cohort Node"},
+    {"key": "USA_old",    "suborg_suffix": "node-old",
+     "suborg_name": "University of Nottingham — Older Cohort Node"},
+    {"key": "USA_normal", "suborg_suffix": "node-normal",
+     "suborg_name": "University of Nottingham — Reference Cohort Node"},
 ]
 
 OUTPUT_ROOT = Path("provenance")
 
 
-def build_crate(tre: dict) -> ROCrate:
-    """Build the RO-Crate for a single TRE."""
+def build_crate(node: dict) -> ROCrate:
+    """Build the RO-Crate for a single node."""
     crate = ROCrate()
 
     # Shared geo + parent institution
@@ -87,11 +87,11 @@ def build_crate(tre: dict) -> ROCrate:
         crate.add(person)
         people.append(person)
 
-    # Distinct sub-organisation for this TRE
-    suborg_id = f"{PARENT_ROR}#{tre['suborg_suffix']}"
+    # Distinct sub-organisation for this node
+    suborg_id = f"{PARENT_ROR}#{node['suborg_suffix']}"
     suborg = ContextEntity(crate, identifier=suborg_id, properties={
         "@type": "Organization",
-        "name": tre["suborg_name"],
+        "name": node["suborg_name"],
         "parentOrganization": parent,
         "location": geo,
         "member": people,
@@ -108,8 +108,8 @@ def build_crate(tre: dict) -> ROCrate:
 
 def main():
     for node in nodes:
-        crate = build_crate(tre)
-        out_dir = OUTPUT_ROOT / tre["key"]
+        crate = build_crate(node)
+        out_dir = OUTPUT_ROOT / node["key"]
         out_dir.mkdir(parents=True, exist_ok=True)
         crate.write(out_dir)
         print(f"Wrote {out_dir / 'ro-crate-metadata.json'}")
