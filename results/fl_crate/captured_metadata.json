@@ -1,8 +1,8 @@
 {
   "app_name": "Federated PRS case/control classification across 3 nodes",
   "run_timing": {
-    "start_time": "2026-06-29T16:16:23.246544+00:00",
-    "end_time": "2026-06-29T16:18:32.596617+00:00"
+    "start_time": "2026-08-10T18:45:19.243499+00:00",
+    "end_time": "2026-08-10T18:47:20.755824+00:00"
   },
   "environment_config": {
     "num-server-rounds": 10,
@@ -32,7 +32,7 @@
       "name": "pandas",
       "homepage": null,
       "declared": ">=2.0",
-      "installed_version": "3.0.4",
+      "installed_version": "3.0.5",
       "known_framework": false
     },
     {
